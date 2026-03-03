@@ -1,0 +1,360 @@
+---
+title: Sync endpoints
+description: API endpoints for offline synchronization and data upload
+---
+
+The sync endpoints enable offline-first functionality, allowing mobile devices to synchronize inspection data, photos, and form updates with the server.
+
+## POST /api/v1/sync
+
+Synchronize offline changes with the server. Supports batch operations for form fills, inspections, photo deletions, and signature deletions.
+
+### Authentication
+
+Requires user authentication via Devise. Include authentication token in request headers.
+
+### Request body
+
+<ParamField path="sync_items" type="array" required>
+  Array of sync items to process. Each item represents a change made offline.
+</ParamField>
+
+<ParamField path="sync_items[].type" type="string" required>
+  Type of sync operation:
+  - `form_fill` - Create or update form fill data
+  - `form_fill_update` - Update form fill data (alias)
+  - `inspection` - Update inspection status/notes
+  - `photo_delete` - Delete photo from form fill
+  - `signature_delete` - Delete signature from form fill
+</ParamField>
+
+<ParamField path="sync_items[].local_id" type="string" required>
+  Client-side identifier for tracking sync results
+</ParamField>
+
+<ParamField path="sync_items[].data" type="object" required>
+  Payload data specific to the sync type
+</ParamField>
+
+### Form fill sync payload
+
+<ParamField path="data.id" type="integer">
+  Form fill ID (required for updates)
+</ParamField>
+
+<ParamField path="data.updated_at" type="datetime">
+  Client's last updated timestamp for conflict detection
+</ParamField>
+
+<ParamField path="data.data" type="object">
+  Complete form data hash (for full sync)
+</ParamField>
+
+<ParamField path="data.changes" type="object">
+  Partial changes to merge (for patch sync)
+</ParamField>
+
+<ParamField path="data.resolve_strategy" type="string">
+  Conflict resolution strategy: `use_local` to force local version
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Overall sync success status
+</ResponseField>
+
+<ResponseField name="results" type="object">
+  Sync results categorized by outcome
+</ResponseField>
+
+<Expandable title="results">
+  <ResponseField name="success" type="array">
+    Successfully synced items with server IDs
+  </ResponseField>
+  
+  <ResponseField name="errors" type="array">
+    Failed sync items with error messages
+  </ResponseField>
+  
+  <ResponseField name="conflicts" type="array">
+    Items with version conflicts requiring resolution
+  </ResponseField>
+</Expandable>
+
+<ResponseField name="synced_at" type="datetime">
+  Server timestamp of sync completion
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Summary message with counts
+</ResponseField>
+
+### Example request
+
+```json
+{
+  "sync_items": [
+    {
+      "type": "form_fill",
+      "local_id": "offline-123",
+      "data": {
+        "id": 456,
+        "updated_at": "2024-03-15T10:30:00Z",
+        "data": {
+          "Building_Name": "Main Building",
+          "Location_row_1": "First Floor"
+        }
+      }
+    },
+    {
+      "type": "photo_delete",
+      "local_id": "delete-789",
+      "data": {
+        "form_fill_id": 456,
+        "field_name": "Inspection_Photo_1"
+      }
+    }
+  ]
+}
+```
+
+### Example response
+
+```json
+{
+  "success": true,
+  "results": {
+    "success": [
+      {
+        "local_id": "offline-123",
+        "server_id": 456,
+        "type": "form_fill",
+        "message": "FormFill updated successfully"
+      }
+    ],
+    "errors": [],
+    "conflicts": []
+  },
+  "synced_at": "2024-03-15T10:35:22Z",
+  "message": "Sync completed: 1 successful, 0 errors, 0 conflicts"
+}
+```
+
+### Conflict handling
+
+When the server detects a version conflict (server's `updated_at` is newer than client's), it returns conflict data:
+
+```json
+{
+  "success": false,
+  "conflict": true,
+  "server_id": 456,
+  "conflict_data": {
+    "server_version": "2024-03-15T10:32:00Z",
+    "local_version": "2024-03-15T10:30:00Z",
+    "server_data": { "Building_Name": "Updated Building" },
+    "local_data": { "Building_Name": "Main Building" }
+  },
+  "message": "Version conflict detected"
+}
+```
+
+To resolve conflicts, send the request again with `resolve_strategy: "use_local"` to force the local version.
+
+## POST /api/v1/sync/upload_photo
+
+Upload a photo from offline storage to a specific form fill field.
+
+### Request parameters
+
+<ParamField path="form_fill_id" type="integer" required>
+  ID of the form fill to attach the photo to
+</ParamField>
+
+<ParamField path="field_name" type="string" required>
+  Name of the form field for the photo
+</ParamField>
+
+<ParamField path="photo" type="file" required>
+  Image file (JPEG, PNG). Maximum 10MB.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Upload success status
+</ResponseField>
+
+<ResponseField name="photo_attachment_id" type="string">
+  Unique attachment ID for the uploaded photo
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Success or error message
+</ResponseField>
+
+### Example (multipart form data)
+
+```bash
+curl -X POST https://example.com/api/v1/sync/upload_photo \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "form_fill_id=456" \
+  -F "field_name=Inspection_Photo_1" \
+  -F "photo=@/path/to/photo.jpg"
+```
+
+### Error responses
+
+<ResponseField name="error" type="string">
+  Error message for validation failures:
+  - `"Required parameters: form_fill_id, field_name, photo"`
+  - `"Not authorized to update this form"`
+  - `"FormFill not found"`
+  - `"File must be an image"`
+  - `"File too large (max 10MB)"`
+</ResponseField>
+
+## GET /api/v1/sync/status
+
+Check synchronization status and user statistics.
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request success status
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Sync status data
+</ResponseField>
+
+<Expandable title="data">
+  <ResponseField name="user_id" type="integer">
+    Current user ID
+  </ResponseField>
+  
+  <ResponseField name="total_inspections" type="integer">
+    Total inspections accessible to user
+  </ResponseField>
+  
+  <ResponseField name="pending_inspections" type="integer">
+    Inspections with pending or in_progress status
+  </ResponseField>
+  
+  <ResponseField name="completed_inspections" type="integer">
+    Completed inspections
+  </ResponseField>
+  
+  <ResponseField name="total_form_fills" type="integer">
+    Total form fills across all inspections
+  </ResponseField>
+  
+  <ResponseField name="last_sync" type="string">
+    Last sync timestamp or "Never"
+  </ResponseField>
+  
+  <ResponseField name="server_time" type="datetime">
+    Current server time
+  </ResponseField>
+</Expandable>
+
+### Example response
+
+```json
+{
+  "success": true,
+  "data": {
+    "user_id": 42,
+    "total_inspections": 15,
+    "pending_inspections": 3,
+    "completed_inspections": 12,
+    "total_form_fills": 60,
+    "last_sync": "2024-03-15T09:15:00Z",
+    "server_time": "2024-03-15T10:35:22Z"
+  },
+  "message": "Sync status retrieved successfully"
+}
+```
+
+## Implementation details
+
+### Conflict resolution
+
+The sync endpoint implements optimistic locking using `updated_at` timestamps:
+
+1. Client sends last known `updated_at` with changes
+2. Server compares with current `updated_at`
+3. If server version is newer, return conflict data
+4. Client can resolve by:
+   - Showing user a merge UI
+   - Sending `resolve_strategy: "use_local"` to force local version
+   - Implementing automatic merge logic
+
+### Data merging strategy
+
+From `sync_controller.rb:182-211`:
+
+```ruby
+# Merge local data with server data to preserve server-only keys
+merged = (form_fill.data || {}).merge(form_fill_data[:data] || {})
+form_fill.update!(data: merged)
+```
+
+This ensures:
+- Local changes override server values
+- Server-only keys (e.g., photo attachment IDs) are preserved
+- No data loss during sync
+
+### Authorization
+
+All endpoints use Pundit policies to verify user access:
+- Users can only sync their own inspections
+- Technicians can access assigned inspections
+- Admins have full access
+
+<Note>
+The sync endpoints are designed for offline-first mobile applications. They handle network interruptions gracefully and support batch operations for efficiency.
+</Note>
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Batch sync" icon="layer-group">
+    Group multiple changes into a single sync request to minimize network requests
+  </Card>
+  
+  <Card title="Conflict handling" icon="code-merge">
+    Always implement conflict resolution UI for better user experience
+  </Card>
+  
+  <Card title="Photo uploads" icon="image">
+    Upload photos separately after syncing form data to avoid timeout issues
+  </Card>
+  
+  <Card title="Status checks" icon="clock">
+    Poll sync status periodically to track pending changes
+  </Card>
+</CardGroup>
+
+## Error handling
+
+<Warning>
+Always check the `results.errors` and `results.conflicts` arrays even when `success: true`. Partial failures are common in batch operations.
+</Warning>
+
+Common error scenarios:
+
+| Error | Cause | Resolution |
+|-------|-------|------------|
+| Version conflict | Server data changed | Implement conflict resolution |
+| FormFill not found | ID mismatch or deleted | Re-download inspection data |
+| Unauthorized | Missing/invalid auth | Re-authenticate user |
+| File too large | Photo > 10MB | Compress before upload |
+| Invalid sync type | Unknown type | Check API version |
+
+## Related
+
+- [Offline support](/api/offline-support) - Full offline functionality guide
+- [FormFill model](/api/form-fill) - Data storage structure
+- [Filling forms](/guides/filling-forms) - User guide for form completion

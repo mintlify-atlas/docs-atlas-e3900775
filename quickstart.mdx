@@ -1,80 +1,492 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart guide
+description: Complete your first fire inspection in minutes with this step-by-step guide
 ---
 
-## Get started in three steps
+# Quickstart guide
 
-Get your documentation site running locally and make your first customization.
+This guide walks you through the complete inspection workflow, from setting up your company information to generating a signed final report.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+- User account with Technician or Admin role
+- At least one PDF inspection form template uploaded
+- Basic familiarity with fire inspection procedures
+
+## Step 1: Configure company settings
+
+Before conducting inspections, set up your contractor and license information. This data auto-fills into all inspection forms.
+
+<Steps>
+  <Step title="Navigate to company settings">
+    Access the settings page at `/settings`
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    You'll see sections for:
+    - Contractor information
+    - License details
+    - System categories
+    - Inspection intervals
+  </Step>
+  
+  <Step title="Add contractor information">
+    Create a new contractor record with your company details:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    ```ruby
+    # ContractorInfo model fields:
+    # - name: Company name
+    # - address: Business address
+    # - phone: Contact number
+    # - email: Business email
+    ```
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    Navigate to `/contractor_infos/new` and fill in:
+    - Company name (e.g., "FireMex Solutions")
+    - Business address
+    - Contact phone and email
+  </Step>
+  
+  <Step title="Add license information">
+    Add your fire protection contractor license:
+    
+    ```ruby
+    # LicenseInfo model fields:
+    # - license_number: State license number
+    # - issued_date: License issue date
+    # - expiration_date: License expiration
+    ```
+    
+    Navigate to `/license_infos/new` and enter:
+    - License number (e.g., "C16-123456")
+    - Issue and expiration dates
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+<Info>
+  The `HeaderAutoFillerService` automatically populates these details into every inspection form you create.
+</Info>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+## Step 2: Create a customer and property
 
-### Step 3: Go live
+Inspections are organized by customer properties. Set up your first customer and property.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+<Steps>
+  <Step title="Create a customer">
+    Navigate to `/customers/new`
+    
+    ```ruby
+    # Customer model:
+    class Customer < ApplicationRecord
+      has_many :properties
+      has_many :inspections, through: :properties
+      
+      scope :search_by_name, ->(query) { 
+        where("name ILIKE ?", "%#{query}%") 
+      }
+    end
+    ```
+    
+    Fill in:
+    - Customer name (e.g., "ABC Property Management")
+    - Contact information
+    - Optional thumbnail image
+  </Step>
+  
+  <Step title="Add a property">
+    From the customer page, create a new property:
+    
+    ```ruby
+    # Property model:
+    class Property < ApplicationRecord
+      belongs_to :customer
+      has_many :inspections
+    end
+    ```
+    
+    Navigate to `/properties/new` and enter:
+    - Property name (e.g., "Oak Street Apartments")
+    - Full address
+    - Select the customer you just created
+  </Step>
+</Steps>
+
+<Note>
+  Properties can have multiple inspections over time. The system tracks all inspection history per property.
+</Note>
+
+## Step 3: Upload a form template
+
+Form templates define the structure of your inspection forms. Upload your first PDF template.
+
+<Steps>
+  <Step title="Prepare your PDF form">
+    Ensure your PDF has fillable form fields. The system supports:
+    - Text fields
+    - Checkboxes and radio buttons
+    - Signature fields
+    - Dropdown lists
+    
+    <Warning>
+      PDFs must be AcroForm-based with fillable fields. Scanned PDFs without form fields won't work.
+    </Warning>
+  </Step>
+  
+  <Step title="Upload the template">
+    Navigate to `/form_templates/new`
+    
+    ```ruby
+    # FormTemplate model:
+    class FormTemplate < ApplicationRecord
+      has_one_attached :original_file
+      has_many :inspections
+      has_and_belongs_to_many :interval_categories
+    end
+    ```
+    
+    Fill in:
+    - Template name (e.g., "Wet Pipe Sprinkler - Annual")
+    - Upload your PDF file
+    - Select system category (e.g., "Wet Pipe")
+    - Choose interval categories (e.g., "Annual", "Semi-Annual")
+    
+    Click "Create" - the system will queue a background job to parse the PDF.
+  </Step>
+  
+  <Step title="Verify parsing results">
+    After upload, the `ParseFormTemplateJob` extracts all form fields:
+    
+    ```ruby
+    # Background job processing:
+    ParseFormTemplateJob.perform_later(@form_template.id)
+    
+    # Uses PdfFormsParserService:
+    parser = PdfFormsParserService.new(file_path)
+    form_structure = parser.parse
+    # Returns: [
+    #   { name: "Location", type: "Text", label_name: "Location" },
+    #   { name: "Inspector_Signature", type: "Signature_Field" }
+    # ]
+    ```
+    
+    View the template details page to see extracted fields. You can reorder and customize field labels using the form builder at `/form_templates/:id/form_builder`.
+  </Step>
+</Steps>
+
+## Step 4: Create an inspection
+
+Now you're ready to schedule an inspection.
+
+<Steps>
+  <Step title="Start a new inspection">
+    Navigate to `/inspections/new` or click "New Inspection" from a property page.
+    
+    ```ruby
+    # Inspection model:
+    class Inspection < ApplicationRecord
+      belongs_to :property
+      belongs_to :form_template
+      belongs_to :user  # Assigned technician
+      has_many :form_fills
+      
+      delegate :customer, to: :property
+    end
+    ```
+  </Step>
+  
+  <Step title="Configure inspection details">
+    Fill in the inspection form:
+    - **Customer**: Select from dropdown
+    - **Property**: Choose the property (filtered by customer)
+    - **Date**: Inspection date
+    - **System Category**: Type of system (e.g., "Wet Pipe")
+    - **Interval Category**: Inspection frequency (e.g., "Annual")
+    - **Technician**: Assign to yourself or another technician
+    - **Job Number**: Optional reference number
+    
+    The system automatically selects the correct form template based on system category and interval.
+  </Step>
+  
+  <Step title="Automatic form generation">
+    When you create the inspection, the system automatically generates four form fills:
+    
+    ```ruby
+    # From InspectionsController#create:
+    ActiveRecord::Base.transaction do
+      @inspection.save!
+      
+      # 1. Main inspection form
+      FormFill.create!(
+        name: "#{property.property_name} - #{system_category} - #{interval_category}",
+        form_template: main_form_template,
+        inspection: @inspection,
+        form_structure: main_form_template.form_structure
+      )
+      
+      # 2. Deficiencies form
+      FormFill.create!(
+        name: "#{property.property_name} - Deficiencies",
+        form_template: deficiencies_template,
+        inspection: @inspection
+      )
+      
+      # 3. Additional Risers form
+      # 4. Corrected Deficiencies form
+      
+      # Auto-fill header information
+      HeaderAutoFillerService.new(@inspection).call
+    end
+    ```
+  </Step>
+</Steps>
+
+## Step 5: Fill out the inspection form
+
+Conduct the inspection and fill in the form data.
+
+<Steps>
+  <Step title="Access the form fill">
+    From the inspection detail page (`/inspections/:id`), click on the main form fill.
+    
+    You'll see the form builder interface with all parsed fields organized by section.
+  </Step>
+  
+  <Step title="Enter inspection data">
+    Fill in the form fields:
+    - Text fields: Enter observations and measurements
+    - Checkboxes: Mark Pass/Fail/N/A for each item
+    - Date fields: Auto-populated with inspection date
+    
+    Data is stored separately from structure:
+    
+    ```ruby
+    # FormFill data storage:
+    form_fill.set_field_value("Sprinkler_Count", "150")
+    form_fill.set_field_value("System_Status", "Pass")
+    
+    # Stored in JSONB data column:
+    # data: {
+    #   "Sprinkler_Count": "150",
+    #   "System_Status": "Pass"
+    # }
+    ```
+  </Step>
+  
+  <Step title="Attach photos">
+    Add photos to document inspection findings:
+    
+    ```ruby
+    # Photo attachment:
+    result = form_fill.attach_photo_for_field(
+      "Control_Valve_Photo",
+      uploaded_file
+    )
+    # Returns: { 
+    #   success: true, 
+    #   attachment_id: "inspection_42_control_valve_photo_a1b2c3d4" 
+    # }
+    ```
+    
+    Each field can have multiple photos. They're automatically organized by section in the final PDF.
+  </Step>
+  
+  <Step title="Capture signatures">
+    Add technician signature to the form:
+    
+    ```ruby
+    # Signature attachment:
+    form_fill.attach_signature_for_field(
+      "Technician_Signature",  # Field name
+      signature_image_file     # PNG or JPEG
+    )
+    ```
+    
+    The system differentiates between:
+    - `Signature_Field` - Technician signatures
+    - `Signature_Annex` - Client signatures for final report
+  </Step>
+</Steps>
+
+## Step 6: Record deficiencies (if any)
+
+If you find issues during inspection, document them in the deficiencies form.
+
+<Steps>
+  <Step title="Access the deficiencies form">
+    From the inspection page, click on the "Deficiencies" form fill.
+  </Step>
+  
+  <Step title="Document each deficiency">
+    For each deficiency:
+    - **Item**: Description of the issue
+    - **Riser**: Location identifier
+    - **Deficiency/Correction**: Select D (Deficiency) or C (Correction)
+    - **Comment**: Detailed notes
+    
+    ```ruby
+    # Deficiencies are stored in collections:
+    deficiency_data = {
+      "Item": "Sprinkler head damaged",
+      "Riser": "Riser 3, Floor 2",
+      "C": "",
+      "D": "Yes",
+      "comment_value": "Head #23 showing corrosion"
+    }
+    ```
+  </Step>
+  
+  <Step title="Automatic deficiency transfer">
+    When you mark the inspection as complete, deficiencies automatically transfer to the correction form:
+    
+    ```ruby
+    # From Inspection model:
+    after_update :trigger_deficiency_transfer, 
+      if: -> { saved_change_to_status? && status == 'completed' }
+    
+    def trigger_deficiency_transfer
+      TransferDeficienciesJob.perform_later(id)
+    end
+    ```
+  </Step>
+</Steps>
+
+## Step 7: Complete and generate PDF
+
+Finalize the inspection and generate the signed PDF report.
+
+<Steps>
+  <Step title="Mark inspection complete">
+    Update the inspection status:
+    
+    ```ruby
+    # PATCH /inspections/:id/update_status
+    @inspection.update(status: "completed")
+    ```
+    
+    Navigate to `/inspections/:id/update_status` and change status to "Completed".
+  </Step>
+  
+  <Step title="Generate the PDF report">
+    The system generates a comprehensive PDF including:
+    
+    1. **Main form** - All inspection data filled in
+    2. **Deficiencies** - Listed deficiencies (if any)
+    3. **Photo pages** - All attached photos organized by section
+    4. **Signature annex** - Client signature page with company branding
+    
+    ```ruby
+    # PDF generation uses multiple services:
+    
+    # 1. Fill the PDF form
+    parser = PdfFormsParserService.new(template_path)
+    parser.fill_form(output_path, field_data)
+    
+    # 2. Merge all sections
+    merged_pdf = PdfMergingService.new(main_pdf, deficiencies_pdf).merge
+    
+    # 3. Add photo pages
+    photos_with_context = form_fill.get_photos_with_context
+    PdfMergingService.add_images_to_pdf(
+      merged_pdf, 
+      photos_with_context,
+      title: "Inspection Photos"
+    )
+    
+    # 4. Add signature annex
+    PdfMergingService.add_signature_annexes(
+      merged_pdf,
+      signature_images,
+      inspection
+    )
+    ```
+  </Step>
+  
+  <Step title="Download or email the report">
+    From the form fill page:
+    - Click "Download PDF" to save locally
+    - Click "Send Email" to deliver to the customer
+    
+    The PDF is attached to the form fill via Active Storage:
+    
+    ```ruby
+    form_fill.filled_pdf.attach(
+      io: File.open(pdf_path),
+      filename: "inspection_#{inspection.id}_report.pdf",
+      content_type: "application/pdf"
+    )
+    ```
+  </Step>
+</Steps>
+
+## Summary statistics
+
+View inspection counts and status:
+
+```ruby
+# Form fill statistics:
+counts = form_fill.calculate_form_counts
+# Returns: { pass: 45, fail: 2, na: 8 }
+```
+
+The inspection detail page shows:
+- Total Pass/Fail/N/A counts
+- Inspection completion status
+- Attached photos and signatures
+- Linked deficiencies
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Managing inspections" icon="calendar" href="/guides/managing-inspections">
+    Schedule and view inspections by month
+  </Card>
+  
+  <Card title="Generating reports" icon="chart-line" href="/guides/generating-reports">
+    Learn about PDF generation and email delivery
+  </Card>
+  
+  <Card title="Offline mode" icon="wifi-slash" href="/api/offline-support">
+    Learn about mobile offline capabilities
+  </Card>
+  
+  <Card title="API integration" icon="plug" href="/api/sync-endpoints">
+    Integrate with external systems
+  </Card>
 </CardGroup>
 
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="PDF parsing failed">
+    If form template parsing fails:
+    - Verify the PDF has fillable AcroForm fields
+    - Check that the file is not corrupted
+    - Try re-uploading the template
+    - Review logs for `PdfFormsParserService` errors
+  </Accordion>
+  
+  <Accordion title="Signature not appearing in PDF">
+    If signatures don't show in the final PDF:
+    - Verify the signature field type is `Signature_Field` or `Signature_Annex`
+    - Check that the image file is PNG or JPEG format
+    - Ensure the signature was successfully attached (check `photos` attachments)
+    - Review `PdfSignatureService` logs
+  </Accordion>
+  
+  <Accordion title="Photos not organizing correctly">
+    If photos appear in wrong sections:
+    - Verify the field has a `section_name` in the form structure
+    - Check that photo attachment IDs match the expected pattern
+    - Run `form_fill.sync_photos_with_structure!` to fix mismatches
+  </Accordion>
+  
+  <Accordion title="Deficiencies not transferring">
+    If deficiencies don't auto-transfer on completion:
+    - Verify the inspection status changed to "completed"
+    - Check that `TransferDeficienciesJob` ran successfully
+    - Ensure the "Corrected Deficiencies" template exists
+    - Review background job logs
+  </Accordion>
+</AccordionGroup>
+
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  All code examples are from the actual Rails 8 source code at `~/workspace/source/`. For more details, reference the controller, model, and service files directly.
 </Note>

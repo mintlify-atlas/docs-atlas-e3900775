@@ -1,0 +1,185 @@
+---
+title: 'PDF Parsing & AcroForm Detection'
+description: 'How the system automatically detects and extracts form fields from PDF documents using pdftk and HexaPDF'
+---
+
+## Overview
+
+The PDF Form Parser automatically analyzes uploaded PDF files to detect AcroForm fields, including text inputs, checkboxes, radio buttons, and digital signature fields. This enables form templates to be created from existing PDF documents without manual field mapping.
+
+## How PDF Parsing Works
+
+When you upload a PDF form template, the system uses the `PdfFormsParserService` to extract all interactive fields.
+
+<Steps>
+  <Step title="Upload PDF Document">
+    Navigate to **Form Templates** and click **New Form Template**. Upload a PDF file containing AcroForm fields.
+  </Step>
+  
+  <Step title="Automatic Field Detection">
+    The system uses pdftk to enumerate all form fields in the PDF, detecting:
+    - Text fields (TextBox)
+    - Checkboxes (Button)
+    - Radio buttons (Button with options)
+    - Signature fields (/FT /Sig)
+    - Dropdown lists (Choice)
+  </Step>
+  
+  <Step title="Field Metadata Extraction">
+    For each field, the parser extracts:
+    - Field name (original and sanitized)
+    - Field type
+    - Available options (for checkboxes/radio buttons)
+    - Human-readable label (generated from field name)
+    - Signature metadata (for signature fields)
+  </Step>
+  
+  <Step title="Structure Generation">
+    The parsed fields are stored as JSON in the `form_structure` column, ready for customization in the Form Builder.
+  </Step>
+</Steps>
+
+## Field Detection Engine
+
+The parsing service is located in `app/services/pdf_forms_parser_service.rb:6`.
+
+### Standard Field Parsing
+
+```ruby
+def parse
+  raw_fields = get_fields_with_encoding
+  
+  parsed = raw_fields.map do |field|
+    {
+      name: sanitize_field_name(field.name),
+      original_name: field.name,
+      type: field.type,
+      value: '',
+      options: field.options,
+      human_label: generate_human_label(field.name),
+      label_name: field.value
+    }
+  end
+end
+```
+
+The parser automatically generates human-readable labels by transforming field names:
+- `Location_row_1` → "Location Row 1"
+- `buildingAddress` → "Building Address"
+- `Inspector_Name` → "Inspector Name"
+
+### Signature Field Detection
+
+Signature fields are detected using HexaPDF to identify PDF signature annotations (`/FT /Sig` type).
+
+```ruby
+def self.list_signature_fields(file_path)
+  doc = HexaPDF::Document.open(file_path)
+  
+  fields = []
+  doc.acro_form.each_field do |field|
+    next unless signature_field?(field)
+    
+    fields << {
+      name: field_name,
+      is_signed: !info.nil?,
+      info: extract_signature_info(field)
+    }
+  end
+end
+```
+
+<Note>
+Signature fields are always preserved during parsing, even if they're empty or unsigned. The system marks them with `is_signature: true` for special handling.
+</Note>
+
+## UTF-8 and Special Characters
+
+The parser handles international characters and special symbols through multiple encoding strategies:
+
+1. **UTF-8 Sanitization**: Field names are sanitized to remove invalid UTF-8 sequences
+2. **Fallback Parsing**: If standard parsing fails, the system uses `pdftk dump_data_fields` as a backup
+3. **Character Replacement**: Invalid characters are replaced rather than causing parse failures
+
+```ruby
+def sanitize_field_name(name)
+  name.to_s.encode('UTF-8', invalid: :replace, undef: :replace, replace: '')
+end
+```
+
+## Field Filtering
+
+The parser automatically filters out empty or invalid fields:
+
+- Fields with empty `label_name` values are excluded (except signature fields)
+- Fields with value "Off" (unchecked checkboxes in their default state) are filtered
+- Signature fields are **always preserved** regardless of their state
+
+<Warning>
+If your PDF has fields with blank labels or default values, they may be filtered out during parsing. Use the Form Builder to manually add fields if needed.
+</Warning>
+
+## Error Handling
+
+The parser includes robust error handling for corrupted or non-standard PDFs:
+
+<Accordion title="PdftkError - Standard Parsing Failed">
+When pdftk cannot read the PDF structure, the system automatically switches to `dump_data_fields` method which uses raw PDF data extraction.
+
+**Resolution**: No action needed - fallback is automatic.
+</Accordion>
+
+<Accordion title="StandardError - Unexpected PDF Format">
+If the PDF structure is completely unreadable, parsing returns an empty array and logs the error.
+
+**Resolution**: Verify the PDF is a valid AcroForm document. Some PDFs created with form builders may not have proper field annotations.
+</Accordion>
+
+<Accordion title="Encoding Errors">
+For PDFs with special characters in field names, the parser attempts multiple encoding approaches.
+
+**Resolution**: Handled automatically through UTF-8 sanitization and fallback methods.
+</Accordion>
+
+## Background Processing
+
+Large PDFs with many fields are processed asynchronously to avoid blocking the web interface:
+
+1. Upload initiates `ParseFormTemplateJob`
+2. Job processes PDF in background worker
+3. Form structure is saved when complete
+4. Page automatically refreshes to show parsed fields
+
+```ruby
+def create
+  if @form_template.save
+    ParseFormTemplateJob.perform_later(@form_template.id)
+    redirect_to @form_template, 
+      notice: 'The file is being processed and the structure will appear shortly.'
+  end
+end
+```
+
+## Supported Field Types
+
+| PDF Field Type | Detected As | Usage |
+|---------------|-------------|-------|
+| `/FT /Tx` | Text | Single-line or multi-line text input |
+| `/FT /Btn` (checkbox) | Button | Checkbox with On/Off state |
+| `/FT /Btn` (radio) | Button | Radio button group with options |
+| `/FT /Ch` | Choice | Dropdown or list selection |
+| `/FT /Sig` | Signature_Field | Digital signature field |
+
+## Next Steps
+
+After PDF parsing completes:
+
+<CardGroup cols={2}>
+  <Card title="Customize Fields" icon="pen-to-square" href="/features/form-management">
+    Use the Form Builder to organize, rename, and configure parsed fields
+  </Card>
+  
+  <Card title="Create Inspections" icon="clipboard-check" href="/features/inspections">
+    Start using your form template for fire safety inspections
+  </Card>
+</CardGroup>

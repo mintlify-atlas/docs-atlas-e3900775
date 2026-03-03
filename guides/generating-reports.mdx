@@ -1,0 +1,265 @@
+---
+title: Generating Reports
+description: Generate final PDF inspection reports with signatures and send them to customers
+---
+
+## Overview
+
+Once an inspection form is completed, you can generate a professional PDF report that includes all form data, photos, signatures, and deficiency tracking. The system supports both individual form PDFs and merged complete inspection reports.
+
+## Understanding PDF Types
+
+The system generates different types of PDFs depending on the form:
+
+### Main Inspection PDF (Merged Report)
+When you generate the main inspection form PDF, the system creates a complete report that includes:
+- Main inspection form with all data
+- Embedded photos with context
+- Technician and client signatures
+- Deficiencies summary
+- Additional risers (if any)
+- Corrected deficiencies (if applicable)
+
+<Info>
+The main form is determined by matching the inspection's `form_template_id` (see `form_fill.rb:942-945`).
+</Info>
+
+### Individual Form PDF
+For supplemental forms (Additional Risers, Corrected Deficiencies), you can generate standalone PDFs (see `form_fills_controller.rb:589-604`).
+
+## Generate a PDF Report
+
+<Steps>
+  <Step title="Complete the Form">
+    Ensure all required fields are filled, including:
+    - Inspection data (pass/fail/n/a selections)
+    - Photos of equipment and deficiencies
+    - Technician signature
+    - Client signature
+  </Step>
+
+  <Step title="Submit the Form">
+    Click **Submit Form** on the form fill page. This triggers the PDF generation process.
+    
+    <Info>
+    For main forms, this calls `generate_main_pdf_with_merge` (see `form_fills_controller.rb:607-621`). For individual forms, it calls `generate_individual_pdf` (see `form_fills_controller.rb:589-604`).
+    </Info>
+  </Step>
+
+  <Step title="Wait for Generation">
+    The system displays a message: "Your PDF is being generated and will be available shortly."
+    
+    PDF generation happens in the background via job queue:
+    - Main PDFs: `GeneratePdfJob` (see `form_fills_controller.rb:618`)
+    - Individual PDFs: `GenerateIndividualPdfJob` (see `form_fills_controller.rb:601`)
+    
+    <Note>
+    The form's `pdf_generation_status` is set to "generating" to prevent duplicate generation requests (see `form_fill.rb:8-13` and `form_fills_controller.rb:598`).
+    </Note>
+  </Step>
+
+  <Step title="Check PDF Status">
+    Return to the form or inspection page. When complete, you'll see:
+    - **Download PDF** button
+    - PDF generation timestamp
+    - File size
+    
+    The status changes to "completed" when ready (see `form_fill.rb:933-935`).
+  </Step>
+</Steps>
+
+## Download PDF Reports
+
+<Steps>
+  <Step title="Access Download">
+    From the form fill detail page, click **Download PDF**.
+  </Step>
+
+  <Step title="Choose View Option">
+    - **View in Browser**: Opens the PDF in a new tab (inline disposition)
+    - **Download to Device**: Saves the file to your downloads folder
+    
+    <Info>
+    The download endpoint supports both inline viewing and attachment download (see `form_fills_controller.rb:628-643`).
+    </Info>
+  </Step>
+
+  <Step title="Save or Print">
+    From the PDF viewer, you can:
+    - Print the report
+    - Save a local copy
+    - Share via email or other methods
+  </Step>
+</Steps>
+
+<Tip>
+PDF filename is automatically generated from the form fill name (see `form_fills_controller.rb:634`).
+</Tip>
+
+## PDF Generation Process Details
+
+Understanding what happens behind the scenes:
+
+### Data Merging
+The system merges form structure with saved data to create the complete dataset for PDF generation (see `form_fill.rb:896-926`):
+
+1. Loads form structure (field definitions)
+2. Retrieves data values from the `data` column (see `form_fill.rb:776-783`)
+3. Merges structure and data into a unified format
+4. Adds photos with context (section names, labels) (see `form_fill.rb:1013-1056`)
+5. Includes signatures for technician and client
+
+### Photo Inclusion
+Photos are organized by field and section for the PDF (see `form_fill.rb:1013-1056` and `form_fill.rb:428-465`):
+- Photos are grouped by field name
+- Each photo includes section name and label for context
+- Multiple photos per field are supported
+
+### Deficiency Processing
+Deficiencies are extracted and formatted for the report (see `form_fill.rb:953-1011`):
+- All "Fail" items are collected
+- Deficiency collections are parsed (see `form_fill.rb:966-986`)
+- Critical and documented flags are included
+- Item and riser details are preserved
+
+<Note>
+The merged data is available via the `get_merged_form_data` endpoint for PDF generation services (see `form_fills_controller.rb:500-519`).
+</Note>
+
+## Email Reports to Customers
+
+Send completed reports directly to customers via email.
+
+<Steps>
+  <Step title="Ensure PDF is Generated">
+    The PDF must be generated before sending. Check for the **Download PDF** button.
+  </Step>
+
+  <Step title="Click Send Email">
+    On the form fill page, click **Send Email** or **Email to Customer**.
+  </Step>
+
+  <Step title="Review Email Details">
+    The email form includes:
+    - **Recipient**: Customer email (auto-filled from property record)
+    - **Subject**: Default subject line (customizable)
+    - **Body**: Email message (customizable)
+    - **Attachment**: PDF report (automatically attached)
+    
+    <Info>
+    The recipient email is pulled from the property's customer record. Make sure customer contact information is up to date.
+    </Info>
+  </Step>
+
+  <Step title="Customize and Send">
+    Edit the subject and body as needed, then click **Send Email**.
+  </Step>
+
+  <Step title="Confirm Delivery">
+    The system displays a confirmation message when the email is sent successfully.
+  </Step>
+</Steps>
+
+<Warning>
+Email sending is handled by `EmailService` (see `form_fills_controller.rb:655`). Ensure SMTP settings are configured correctly in your environment.
+</Warning>
+
+### Email Error Handling
+
+The system provides detailed error messages for common issues (see `form_fills_controller.rb:662-678`):
+
+| Error | Meaning | Resolution |
+|-------|---------|------------|
+| PDF not available | PDF hasn't been generated | Generate PDF first, then try sending |
+| Customer email missing | No email on customer record | Update customer information with valid email |
+| Invalid email format | Email address format is incorrect | Correct the email address in customer record |
+| Attachment too large | PDF file exceeds size limit | Contact administrator to adjust limits |
+| SMTP connection failed | Email service unavailable | Check internet connection and SMTP settings |
+| SMTP authentication failed | Email credentials incorrect | Contact administrator to verify SMTP config |
+
+## Regenerate PDFs
+
+If you need to regenerate a PDF after making changes:
+
+<Steps>
+  <Step title="Update Form Data">
+    Make your changes to the form (add photos, fix data, update signatures).
+  </Step>
+
+  <Step title="Submit Again">
+    Click **Submit Form** again to trigger regeneration.
+  </Step>
+
+  <Step title="Wait for New PDF">
+    The system will generate a fresh PDF with the updated data, replacing the previous version.
+    
+    <Note>
+    The timestamp in `last_generated_at` is updated each time a PDF is generated (see `form_fill.rb:934`).
+    </Note>
+  </Step>
+</Steps>
+
+## Check PDF Status
+
+You can check if a form has a PDF and its generation status:
+
+- **pdf_created**: Boolean indicating if a PDF exists (see `form_fill.rb:938-940`)
+- **pdf_generation_status**: Current status (ready/generating/completed/failed) (see `form_fill.rb:8-13`)
+- **last_generated_at**: Timestamp of most recent generation
+
+<Info>
+You can query these fields to determine if a form fill has an individual PDF (see `form_fill.rb:938-940`).
+</Info>
+
+## Main Form Merge Logic
+
+When generating the main inspection PDF, the system determines which additional forms to include (see `form_fill.rb:948-950`):
+
+- **Main form**: Always included (based on inspection's template)
+- **Additional forms**: Included only if they have PDFs generated (`pdf_created == true`)
+- **Exclude**: The main form itself from the merge list
+
+This ensures the final report is comprehensive but doesn't duplicate content.
+
+## Best Practices
+
+<Tip>
+- **Generate early**: Create a test PDF before completing the entire inspection to verify formatting
+- **Review before sending**: Always download and review the PDF before emailing to customers
+- **Keep customer emails updated**: Maintain accurate contact information to prevent send failures
+- **Archive PDFs**: Download and save PDFs to your company's document management system
+- **Use meaningful form names**: Form names become PDF filenames, so use clear, descriptive names
+- **Don't generate unnecessarily**: Only regenerate PDFs when data actually changes to save processing time
+</Tip>
+
+## Troubleshooting
+
+### PDF Generation Stuck on "Generating"
+- Check the background job queue status
+- Refresh the page after a few minutes
+- Contact administrator if it remains stuck for over 10 minutes
+
+### PDF Missing Data or Photos
+- Verify all data is saved in the form (check the form fill detail page)
+- Ensure photos are fully uploaded before generating
+- Check that the template structure matches the data (see `form_fill.rb:896-926`)
+- Regenerate the PDF
+
+### Email Not Sending
+- Verify customer has a valid email address
+- Check SMTP configuration with administrator
+- Ensure PDF is under the maximum attachment size
+- Review error message for specific issue (see `form_fills_controller.rb:662-678`)
+
+### Wrong Template Used
+- Check the inspection's system and interval categories
+- Verify the correct template is assigned to that combination
+- Contact administrator to update template assignments
+
+## Next Steps
+
+After generating and sending your report:
+1. Mark the inspection as "Completed"
+2. Review deficiencies and schedule follow-up inspections if needed
+3. Archive the PDF for compliance and record-keeping
+4. Update property records with inspection completion date

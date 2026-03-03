@@ -1,0 +1,370 @@
+---
+title: 'PdfFormsParserService'
+description: 'Parse and fill PDF form fields with UTF-8 support and signature handling'
+---
+
+## Overview
+
+The `PdfFormsParserService` handles parsing PDF form fields (AcroForm) and filling them with data. It provides UTF-8 support, signature field detection, and automatic integration with the PDF signature service.
+
+**Key Features:**
+- Extract form fields from PDF documents
+- Fill PDF forms with field data
+- UTF-8 character encoding support
+- Automatic signature field detection and handling
+- Fallback parsing for problematic PDFs
+- Human-readable label generation
+
+**Dependencies:**
+- `pdf-forms` gem (pdftk wrapper)
+- `PdfSignatureService` for signature operations
+
+**Source:** `app/services/pdf_forms_parser_service.rb`
+
+---
+
+## Initialization
+
+### Constructor
+
+```ruby
+PdfFormsParserService.new(file_path)
+```
+
+<ParamField path="file_path" type="string" required>
+  Absolute path to the PDF file to parse or fill
+</ParamField>
+
+**Example:**
+
+```ruby
+service = PdfFormsParserService.new('/path/to/form.pdf')
+```
+
+---
+
+## Public Methods
+
+### parse
+
+Extracts all form fields from the PDF document.
+
+```ruby
+service.parse
+```
+
+<ResponseField name="return" type="array">
+  Array of field hashes with metadata. Returns empty array on error.
+</ResponseField>
+
+**Field Hash Structure:**
+
+<ResponseField name="name" type="string">
+  Sanitized field name (UTF-8 encoded)
+</ResponseField>
+
+<ResponseField name="original_name" type="string">
+  Original field name from the PDF
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Field type (e.g., `Text`, `Button`, `Choice`, `Signature_Field`)
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  Always empty string (use `label_name` for original value)
+</ResponseField>
+
+<ResponseField name="options" type="array">
+  Available options for choice fields
+</ResponseField>
+
+<ResponseField name="human_label" type="string">
+  Human-readable field label (e.g., "Location Row 1")
+</ResponseField>
+
+<ResponseField name="label_name" type="string">
+  Original field value from the PDF
+</ResponseField>
+
+<ResponseField name="is_signature" type="boolean">
+  Whether this is a signature field
+</ResponseField>
+
+<ResponseField name="signature_info" type="hash">
+  Signature metadata (name, signing_time, reason, location, etc.) if signed
+</ResponseField>
+
+**Example:**
+
+```ruby
+service = PdfFormsParserService.new('/path/to/form.pdf')
+fields = service.parse
+
+fields.each do |field|
+  puts "Field: #{field[:name]}"
+  puts "Type: #{field[:type]}"
+  puts "Label: #{field[:human_label]}"
+  
+  if field[:is_signature]
+    puts "This is a signature field"
+    if field[:signature_info]
+      puts "Signed by: #{field[:signature_info][:name]}"
+    end
+  end
+end
+```
+
+**Error Handling:**
+
+The method handles errors gracefully:
+- `PdfForms::PdftkError`: Falls back to alternative parsing method
+- `StandardError`: Returns empty array and logs error
+- Automatically retries with `dump_data_fields` command if standard extraction fails
+
+---
+
+### fill_form
+
+Fills the PDF form with provided data and applies signatures.
+
+```ruby
+service.fill_form(output_path, field_data)
+```
+
+<ParamField path="output_path" type="string" required>
+  Path where the filled PDF will be saved
+</ParamField>
+
+<ParamField path="field_data" type="array" required>
+  Array of field hashes with values to fill. Each hash should include:
+  - `name` (string): Field name
+  - `value` (string): Field value
+  - `original_name` (string, optional): Original field name from PDF
+  - `is_signature` (boolean, optional): Whether this is a signature field
+  - `certificate_path` (string, optional): Path to P12/PFX certificate for digital signature
+  - `certificate_password` (string, optional): Certificate password
+  - `signature_image_path` (string, optional): Path to signature image
+  - `reason` (string, optional): Signature reason
+  - `location` (string, optional): Signature location
+  - `signer_name` (string, optional): Name of the signer
+</ParamField>
+
+<ResponseField name="return" type="string">
+  Path to the output PDF file
+</ResponseField>
+
+**Example (Basic Form Fill):**
+
+```ruby
+service = PdfFormsParserService.new('/path/to/form.pdf')
+
+field_data = [
+  { 'name' => 'customer_name', 'value' => 'John Doe' },
+  { 'name' => 'address', 'value' => '123 Main St' },
+  { 'name' => 'city', 'value' => 'San Francisco' }
+]
+
+service.fill_form('/path/to/filled.pdf', field_data)
+```
+
+**Example (With Digital Signature):**
+
+```ruby
+field_data = [
+  { 'name' => 'customer_name', 'value' => 'John Doe' },
+  {
+    'name' => 'signature_field',
+    'original_name' => 'Inspector_Signature',
+    'is_signature' => true,
+    'certificate_path' => '/path/to/cert.p12',
+    'certificate_password' => 'secret',
+    'signature_image_path' => '/path/to/signature.png',
+    'reason' => 'Document approval',
+    'location' => 'San Francisco, CA',
+    'signer_name' => 'John Doe'
+  }
+]
+
+service.fill_form('/path/to/signed.pdf', field_data)
+```
+
+**Example (Image-Only Signature):**
+
+```ruby
+field_data = [
+  {
+    'name' => 'signature_field',
+    'is_signature' => true,
+    'signature_image_path' => '/path/to/signature.png'
+    # No certificate_path = image stamp only, no digital signature
+  }
+]
+
+service.fill_form('/path/to/stamped.pdf', field_data)
+```
+
+**Processing Logic:**
+
+1. Separates normal fields from signature requests
+2. Fills all non-signature fields using pdftk
+3. Applies each signature sequentially:
+   - If `certificate_path` provided: Creates digital signature with `PdfSignatureService.sign`
+   - If only `signature_image_path` provided: Stamps image with `PdfSignatureService.stamp_signature_image`
+4. Returns path to final output PDF
+
+**Error Handling:**
+
+<Warning>
+  Empty field values are skipped to prevent AcroForm structure degradation. Only fields with non-empty values are passed to pdftk.
+</Warning>
+
+- `PdfForms::PdftkError`: Attempts retry with alternative approach
+- UTF-8 encoding errors: Automatically sanitizes invalid characters
+- Missing signature images: Logs warning and skips image stamping
+
+---
+
+## Field Name Processing
+
+The service provides automatic field name processing:
+
+### Sanitization
+
+```ruby
+# Internal: sanitize_field_name(name)
+```
+
+- Removes invalid UTF-8 characters
+- Preserves original name in `original_name` field
+- Both sanitized and original names are tried during form fill
+
+### Human Label Generation
+
+```ruby
+# Internal: generate_human_label(field_name)
+```
+
+Converts technical field names to human-readable labels:
+
+- `Location_row_1` → `Location Row 1`
+- `customerName` → `Customer Name`
+- `inspection_date` → `Inspection Date`
+
+---
+
+## Signature Field Detection
+
+The service automatically detects signature fields:
+
+1. Checks field type for `sig` or `signature`
+2. Queries `PdfSignatureService.list_signature_fields()` for additional metadata
+3. Marks fields with `is_signature: true`
+4. Includes signature info if field is already signed
+
+**Example Signature Field:**
+
+```ruby
+{
+  name: "Inspector_Signature",
+  original_name: "Inspector_Signature",
+  type: "Signature_Field",
+  value: "",
+  is_signature: true,
+  signature_info: {
+    name: "John Doe",
+    signing_time: "D:20240315120000",
+    reason: "Document approval",
+    location: "San Francisco, CA",
+    sub_filter: "adbe.pkcs7.detached"
+  }
+}
+```
+
+---
+
+## Fallback Parsing
+
+When standard parsing fails, the service uses an alternative method:
+
+```ruby
+# Internal: fallback_parse()
+```
+
+1. Executes `pdftk dump_data_fields` command directly
+2. Parses text output manually
+3. Reconstructs field objects
+4. Applies same filtering and signature detection
+
+**Use Cases:**
+- PDFs with encoding issues
+- Corrupted or non-standard AcroForms
+- pdftk library errors
+
+---
+
+## Complete Workflow Example
+
+```ruby
+# 1. Initialize service
+service = PdfFormsParserService.new('/path/to/inspection_form.pdf')
+
+# 2. Parse fields to understand form structure
+fields = service.parse
+
+# 3. Display available fields
+fields.each do |field|
+  puts "#{field[:human_label]} (#{field[:type]})"
+end
+
+# 4. Prepare data for filling
+field_data = [
+  { 'name' => 'inspection_date', 'value' => '03/15/2024' },
+  { 'name' => 'inspector_name', 'value' => 'John Doe' },
+  { 'name' => 'property_address', 'value' => '123 Main St' },
+  {
+    'name' => 'inspector_signature',
+    'is_signature' => true,
+    'certificate_path' => '/certs/inspector.p12',
+    'certificate_password' => ENV['CERT_PASSWORD'],
+    'signature_image_path' => '/signatures/john_doe.png',
+    'reason' => 'Inspection completed',
+    'location' => 'San Francisco, CA',
+    'signer_name' => 'John Doe'
+  }
+]
+
+# 5. Fill and sign
+output_path = service.fill_form('/path/to/completed_inspection.pdf', field_data)
+
+puts "Form filled and signed: #{output_path}"
+```
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Parse Before Fill" icon="magnifying-glass">
+    Always parse the PDF first to understand available fields and their types
+  </Card>
+  
+  <Card title="Handle UTF-8" icon="language">
+    Service automatically handles UTF-8 characters, but verify field names in parsed output
+  </Card>
+  
+  <Card title="Separate Signatures" icon="signature">
+    Signature fields are processed separately after normal fields are filled
+  </Card>
+  
+  <Card title="Error Logging" icon="bug">
+    Monitor Rails logs for encoding issues and fallback parsing events
+  </Card>
+</CardGroup>
+
+---
+
+## Related Services
+
+- [PdfSignatureService](/api/pdf-signature-service) - Digital signature operations
+- [PdfMergingService](/api/pdf-merging-service) - Combine multiple PDFs

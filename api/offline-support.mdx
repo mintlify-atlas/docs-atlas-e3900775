@@ -1,0 +1,518 @@
+---
+title: Offline support
+description: Complete offline functionality for mobile inspections
+---
+
+The PDF Form Parser includes comprehensive offline support, allowing technicians to download inspection data, work offline in the field, and synchronize changes when connectivity is restored.
+
+## GET /api/v1/inspections/:id/offline_data
+
+Download complete inspection data for offline use, including all form fills, photos, and metadata.
+
+### Authentication
+
+Requires user authentication. Users can only access inspections they have permission to view based on Pundit policies.
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  Inspection ID to download
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request success status
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Complete inspection data package
+</ResponseField>
+
+<Expandable title="data">
+  <ResponseField name="inspection" type="object">
+    Core inspection details
+  </ResponseField>
+  
+  <Expandable title="inspection">
+    <ResponseField name="id" type="integer">Inspection ID</ResponseField>
+    <ResponseField name="date" type="date">Scheduled date</ResponseField>
+    <ResponseField name="notes" type="string">Inspection notes</ResponseField>
+    <ResponseField name="status" type="string">Status (pending, in_progress, completed, canceled)</ResponseField>
+    <ResponseField name="system_category" type="string">Fire system type</ResponseField>
+    <ResponseField name="interval_category" type="string">Inspection interval</ResponseField>
+    <ResponseField name="job" type="string">Job number</ResponseField>
+    <ResponseField name="created_at" type="datetime">Creation timestamp</ResponseField>
+    <ResponseField name="updated_at" type="datetime">Last update timestamp</ResponseField>
+    
+    <ResponseField name="property" type="object">
+      Property details (id, property_name, address, city, zip_code)
+    </ResponseField>
+    
+    <ResponseField name="customer" type="object">
+      Customer details (id, name, email, phone_1, phone_2)
+    </ResponseField>
+    
+    <ResponseField name="form_template" type="object">
+      Main form template (id, name)
+    </ResponseField>
+  </Expandable>
+  
+  <ResponseField name="form_fills" type="array">
+    Array of form fills with embedded structures
+  </ResponseField>
+  
+  <Expandable title="form_fills[]">
+    <ResponseField name="id" type="integer">Form fill ID</ResponseField>
+    <ResponseField name="inspection_id" type="integer">Parent inspection ID</ResponseField>
+    <ResponseField name="form_template_id" type="integer">Template ID</ResponseField>
+    <ResponseField name="pdf_generation_status" type="string">Status (ready, generating, completed, failed)</ResponseField>
+    <ResponseField name="data" type="object">Form field data (JSONB hash)</ResponseField>
+    <ResponseField name="created_at" type="datetime">Creation timestamp</ResponseField>
+    <ResponseField name="updated_at" type="datetime">Last update timestamp</ResponseField>
+    <ResponseField name="form_structure" type="string">Embedded JSON form structure</ResponseField>
+    <ResponseField name="photos" type="array">Array of attached photos</ResponseField>
+  </Expandable>
+  
+  <ResponseField name="sync_metadata" type="object">
+    Synchronization tracking data
+  </ResponseField>
+  
+  <Expandable title="sync_metadata">
+    <ResponseField name="downloaded_at" type="datetime">Download timestamp</ResponseField>
+    <ResponseField name="version" type="integer">Data version number</ResponseField>
+    <ResponseField name="checksum" type="string">MD5 checksum for integrity validation</ResponseField>
+  </Expandable>
+</Expandable>
+
+<ResponseField name="message" type="string">
+  Success message
+</ResponseField>
+
+### Example response
+
+```json
+{
+  "success": true,
+  "data": {
+    "inspection": {
+      "id": 123,
+      "date": "2024-03-20",
+      "notes": "Annual inspection",
+      "status": "in_progress",
+      "system_category": "Fire Sprinkler System",
+      "interval_category": "Annual",
+      "job": "JOB-2024-0123",
+      "created_at": "2024-03-01T09:00:00Z",
+      "updated_at": "2024-03-15T14:30:00Z",
+      "property": {
+        "id": 45,
+        "property_name": "Main Office Building",
+        "address": "123 Main St",
+        "city": "San Francisco",
+        "zip_code": "94102"
+      },
+      "customer": {
+        "id": 78,
+        "name": "Acme Corporation",
+        "email": "facilities@acme.com",
+        "phone_1": "555-0100",
+        "phone_2": null
+      },
+      "form_template": {
+        "id": 5,
+        "name": "Annual Fire Sprinkler Inspection"
+      }
+    },
+    "form_fills": [
+      {
+        "id": 456,
+        "inspection_id": 123,
+        "form_template_id": 5,
+        "pdf_generation_status": "ready",
+        "data": {
+          "Building_Name": "Main Office",
+          "Location_row_1": "First Floor"
+        },
+        "created_at": "2024-03-01T09:05:00Z",
+        "updated_at": "2024-03-15T14:30:00Z",
+        "form_structure": "[{\"name\":\"Building_Name\",\"type\":\"Text\"}]",
+        "photos": [
+          {
+            "id": 789,
+            "filename": "inspection_123_photo_1.jpg",
+            "content_type": "image/jpeg",
+            "byte_size": 245678,
+            "url": "/rails/active_storage/blobs/.../inspection_123_photo_1.jpg"
+          }
+        ]
+      }
+    ],
+    "sync_metadata": {
+      "downloaded_at": "2024-03-15T15:00:00Z",
+      "version": 1,
+      "checksum": "5d41402abc4b2a76b9719d911017c592"
+    }
+  },
+  "message": "Inspection data retrieved successfully"
+}
+```
+
+### Error responses
+
+<ResponseField name="error" type="string">
+  Error identifier:
+  - `InspectionNotFound` - Inspection doesn't exist or no permission
+  - `InternalServerError` - Server error during data retrieval
+</ResponseField>
+
+## Offline-first architecture
+
+The offline support follows an **offline-first design** where the mobile app:
+
+1. **Downloads** complete inspection packages to local storage (IndexedDB)
+2. **Works offline** using locally cached data and form structures
+3. **Tracks changes** made while offline
+4. **Syncs** changes when connectivity returns
+5. **Handles conflicts** when server data has changed
+
+### Data embedding strategy
+
+From `inspections_controller.rb:56-57`:
+
+```ruby
+# Embed form structure directly in each form_fill
+form_structure: form_fill.form_template&.form_structure
+```
+
+<Info>
+**Key design decision**: Each `form_fill` includes its own embedded `form_structure`. This ensures the mobile app can render forms entirely from the cached `form_fill` object without additional lookups, even when templates are updated on the server.
+</Info>
+
+### Storage architecture
+
+Mobile apps should store downloaded data in IndexedDB with this structure:
+
+```javascript
+// IndexedDB stores
+const stores = {
+  inspections: { keyPath: 'id' },
+  form_fills: { keyPath: 'id', indexes: ['inspection_id'] },
+  photos: { keyPath: 'id', indexes: ['form_fill_id'] },
+  sync_queue: { keyPath: 'local_id', autoIncrement: true }
+};
+```
+
+## Offline workflow
+
+<Steps>
+  <Step title="Download inspection">
+    Before going offline, download the inspection using `GET /api/v1/inspections/:id/offline_data`
+    
+    ```javascript
+    const response = await fetch(`/api/v1/inspections/${inspectionId}/offline_data`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const { data } = await response.json();
+    
+    // Store in IndexedDB
+    await db.inspections.put(data.inspection);
+    await db.form_fills.bulkPut(data.form_fills);
+    ```
+  </Step>
+  
+  <Step title="Work offline">
+    Use locally stored data for all form operations:
+    
+    ```javascript
+    // Read from IndexedDB
+    const formFill = await db.form_fills.get(formFillId);
+    const formStructure = JSON.parse(formFill.form_structure);
+    
+    // Render form using embedded structure
+    renderForm(formStructure, formFill.data);
+    ```
+  </Step>
+  
+  <Step title="Track changes">
+    Queue all changes made offline:
+    
+    ```javascript
+    // When user updates a field
+    await db.sync_queue.add({
+      type: 'form_fill',
+      data: {
+        id: formFill.id,
+        updated_at: formFill.updated_at,
+        changes: { 'Building_Name': newValue }
+      }
+    });
+    ```
+  </Step>
+  
+  <Step title="Detect connectivity">
+    Monitor network status and trigger sync when online:
+    
+    ```javascript
+    window.addEventListener('online', async () => {
+      if (navigator.onLine) {
+        await syncOfflineChanges();
+      }
+    });
+    ```
+  </Step>
+  
+  <Step title="Sync changes">
+    Send queued changes to server using `POST /api/v1/sync`:
+    
+    ```javascript
+    const syncItems = await db.sync_queue.toArray();
+    const response = await fetch('/api/v1/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sync_items: syncItems })
+    });
+    ```
+  </Step>
+  
+  <Step title="Handle results">
+    Process sync results and handle conflicts:
+    
+    ```javascript
+    const { results } = await response.json();
+    
+    // Remove successful items from queue
+    for (const item of results.success) {
+      await db.sync_queue.delete(item.local_id);
+    }
+    
+    // Show conflict resolution UI
+    if (results.conflicts.length > 0) {
+      showConflictDialog(results.conflicts);
+    }
+    ```
+  </Step>
+</Steps>
+
+## Photo handling offline
+
+Photos require special handling for offline use:
+
+### Downloading photos
+
+```javascript
+// Download and cache photo blobs
+for (const photo of formFill.photos) {
+  const blob = await fetch(photo.url).then(r => r.blob());
+  await db.photos.put({
+    id: photo.id,
+    form_fill_id: formFill.id,
+    blob: blob,
+    filename: photo.filename
+  });
+}
+```
+
+### Uploading photos when online
+
+```javascript
+// Upload captured photos
+const formData = new FormData();
+formData.append('form_fill_id', formFillId);
+formData.append('field_name', fieldName);
+formData.append('photo', photoBlob, 'inspection_photo.jpg');
+
+await fetch('/api/v1/sync/upload_photo', {
+  method: 'POST',
+  body: formData
+});
+```
+
+## Checksum validation
+
+The `sync_metadata.checksum` field enables data integrity verification:
+
+```javascript
+function validateChecksum(data, expectedChecksum) {
+  const actualChecksum = md5(JSON.stringify(data));
+  if (actualChecksum !== expectedChecksum) {
+    console.warn('Data integrity check failed - re-download recommended');
+    return false;
+  }
+  return true;
+}
+```
+
+<Warning>
+Always validate checksums after downloading offline data to ensure integrity, especially over unreliable network connections.
+</Warning>
+
+## Performance considerations
+
+### Download size optimization
+
+| Component | Average Size | Notes |
+|-----------|--------------|-------|
+| Inspection metadata | ~2 KB | Minimal overhead |
+| Form fill (no photos) | ~5-10 KB | Depends on field count |
+| Form structure | ~10-20 KB | Template complexity |
+| Photo (JPEG) | 200-500 KB | Compressed images |
+| Complete inspection | 1-5 MB | With 5-10 photos |
+
+<Tip>
+For inspections with many photos, consider:
+- Downloading lower resolution thumbnails for offline viewing
+- Uploading full-resolution photos separately when online
+- Implementing progressive download (metadata first, then photos)
+</Tip>
+
+### IndexedDB limits
+
+Browser storage limits vary:
+- **Chrome/Edge**: ~60% of disk space (typically GBs)
+- **Firefox**: ~50% of disk space
+- **Safari**: ~1 GB with user prompt for more
+
+Monitor storage usage:
+
+```javascript
+if (navigator.storage && navigator.storage.estimate) {
+  const { usage, quota } = await navigator.storage.estimate();
+  const percentUsed = (usage / quota) * 100;
+  console.log(`Storage: ${percentUsed.toFixed(2)}% used`);
+}
+```
+
+## Conflict resolution strategies
+
+Implement appropriate conflict resolution based on your use case:
+
+### 1. Server wins (safest)
+```javascript
+if (result.conflict) {
+  // Discard local changes, use server version
+  await db.form_fills.put(result.conflict_data.server_data);
+}
+```
+
+### 2. Client wins (force local)
+```javascript
+if (result.conflict) {
+  // Re-submit with force flag
+  await syncWithResolve(item, 'use_local');
+}
+```
+
+### 3. Manual merge (recommended)
+```javascript
+if (result.conflict) {
+  // Show UI for user to choose or merge
+  const choice = await showConflictDialog(
+    result.conflict_data.server_data,
+    result.conflict_data.local_data
+  );
+  
+  if (choice === 'merge') {
+    const merged = mergeData(
+      result.conflict_data.server_data,
+      result.conflict_data.local_data
+    );
+    await syncMergedData(merged);
+  }
+}
+```
+
+### 4. Field-level merge (advanced)
+```javascript
+function mergeFormData(server, local) {
+  const merged = { ...server };
+  
+  // Only override server fields that user actually changed
+  for (const [key, value] of Object.entries(local)) {
+    if (value !== server[key] && userModifiedFields.has(key)) {
+      merged[key] = value; // Keep user's change
+    }
+  }
+  
+  return merged;
+}
+```
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Batch downloads" icon="download">
+    Download all scheduled inspections at once before going offline
+  </Card>
+  
+  <Card title="Background sync" icon="rotate">
+    Use Service Worker Background Sync API for reliable uploads
+  </Card>
+  
+  <Card title="Optimistic UI" icon="bolt">
+    Update UI immediately, sync in background
+  </Card>
+  
+  <Card title="Sync indicators" icon="signal">
+    Show clear offline/online status and pending sync count
+  </Card>
+</CardGroup>
+
+## Service Worker example
+
+Implement Background Sync for reliable offline support:
+
+```javascript
+// service-worker.js
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'sync-inspections') {
+    event.waitUntil(syncAllPendingChanges());
+  }
+});
+
+async function syncAllPendingChanges() {
+  const db = await openDB();
+  const pending = await db.sync_queue.toArray();
+  
+  if (pending.length === 0) return;
+  
+  const response = await fetch('/api/v1/sync', {
+    method: 'POST',
+    body: JSON.stringify({ sync_items: pending })
+  });
+  
+  const { results } = await response.json();
+  
+  // Clean up successful syncs
+  for (const item of results.success) {
+    await db.sync_queue.delete(item.local_id);
+  }
+}
+```
+
+## Testing offline functionality
+
+Test offline capabilities thoroughly:
+
+```javascript
+// Simulate offline mode
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.controller.postMessage({
+    type: 'SIMULATE_OFFLINE',
+    enabled: true
+  });
+}
+
+// Test sync after 'going online'
+window.dispatchEvent(new Event('online'));
+```
+
+<Note>
+Chrome DevTools supports offline simulation via Network tab → Throttling → Offline. Use this for development and testing.
+</Note>
+
+## Related
+
+- [Sync endpoints](/api/sync-endpoints) - API reference for sync operations
+- [FormFill model](/api/form-fill) - Data structure details
+- [Filling forms](/guides/filling-forms) - User guide with offline tips

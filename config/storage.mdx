@@ -1,0 +1,432 @@
+---
+title: Active Storage Configuration
+description: Configure file storage for PDFs, photos, and attachments using local disk, S3, or DigitalOcean Spaces
+---
+
+## Overview
+
+The PDF Form Parser uses Rails **Active Storage** to handle file uploads including:
+
+- **PDF form templates** - Original PDF files with form fields
+- **Generated PDFs** - Completed and merged PDF documents
+- **Photos** - Inspection photos attached to forms
+- **Signatures** - Digital signature images
+- **User avatars** - Profile pictures
+
+Active Storage supports multiple storage backends and can transform images on-the-fly.
+
+## Storage Services
+
+The application is configured with three storage services in `config/storage.yml`:
+
+### Local Storage (Development/Test)
+
+Stores files on the local filesystem:
+
+```yaml
+local:
+  service: Disk
+  root: <%= Rails.root.join("storage") %>
+
+test:
+  service: Disk
+  root: <%= Rails.root.join("tmp/storage") %>
+```
+
+- **Development**: Files stored in `storage/` directory
+- **Test**: Files stored in `tmp/storage/` (cleaned between test runs)
+
+### DigitalOcean Spaces (Production)
+
+S3-compatible object storage:
+
+```yaml
+digitalocean:
+  service: S3
+  endpoint: <%= ENV["DO_SPACES_ENDPOINT"] %>
+  access_key_id: <%= ENV["DO_SPACES_KEY"] %>
+  secret_access_key: <%= ENV["DO_SPACES_SECRET"] %>
+  region: <%= ENV["DO_SPACES_REGION"] %>
+  bucket: <%= ENV["DO_SPACES_BUCKET"] %>
+```
+
+## Environment Configuration
+
+The active storage service is set per environment:
+
+### Development
+
+```ruby
+# config/environments/development.rb
+config.active_storage.service = :local
+```
+
+### Production
+
+```ruby
+# config/environments/production.rb
+config.active_storage.service = :digitalocean
+```
+
+## Setting Up DigitalOcean Spaces
+
+### 1. Create a Space
+
+1. Log in to your DigitalOcean account
+2. Navigate to Spaces in the sidebar
+3. Click "Create a Space"
+4. Choose a datacenter region (e.g., NYC3, SFO3)
+5. Set a unique space name
+6. Choose public or private access
+
+### 2. Generate API Keys
+
+1. Go to API → Spaces Keys
+2. Click "Generate New Key"
+3. Save the **Access Key** and **Secret Key** securely
+
+### 3. Configure Environment Variables
+
+Set these environment variables in your production environment:
+
+```bash
+DO_SPACES_ENDPOINT=https://nyc3.digitaloceanspaces.com
+DO_SPACES_KEY=your_access_key_here
+DO_SPACES_SECRET=your_secret_key_here
+DO_SPACES_REGION=us-east-1
+DO_SPACES_BUCKET=your-bucket-name
+```
+
+<Note>
+- The endpoint URL varies by region (nyc3, sfo3, sgp1, etc.)
+- Region should typically be `us-east-1` for Spaces compatibility
+- The bucket name must be globally unique
+</Note>
+
+## Using Amazon S3
+
+To use Amazon S3 instead of DigitalOcean Spaces:
+
+### 1. Add S3 Configuration
+
+Add this to `config/storage.yml`:
+
+```yaml
+amazon:
+  service: S3
+  access_key_id: <%= ENV["AWS_ACCESS_KEY_ID"] %>
+  secret_access_key: <%= ENV["AWS_SECRET_ACCESS_KEY"] %>
+  region: us-east-1
+  bucket: your-bucket-name
+```
+
+### 2. Update Environment Configuration
+
+```ruby
+# config/environments/production.rb
+config.active_storage.service = :amazon
+```
+
+### 3. Set Environment Variables
+
+```bash
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+```
+
+<Note>
+The `aws-sdk-s3` gem is already included in the Gemfile and works with both S3 and S3-compatible services.
+</Note>
+
+## File Processing Dependencies
+
+The application requires several gems for file processing:
+
+```ruby
+# Gemfile
+gem "activestorage"
+gem "aws-sdk-s3", require: false
+gem "image_processing", "~> 1.2"
+gem "pdf-forms"              # Reading PDF forms
+gem "hexapdf", "~> 0.36"     # Digital signatures (PAdES)
+gem "combine_pdf"            # Merging PDFs
+gem "prawn"                  # PDF generation
+gem "marcel"                 # MIME type detection
+```
+
+### System Dependencies
+
+Install these system packages:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install pdftk libvips
+
+# macOS
+brew install pdftk-java vips
+```
+
+- **pdftk** - PDF form field manipulation
+- **libvips** - Fast image processing for variants
+
+## Image Transformations
+
+Active Storage can generate image variants using `image_processing`:
+
+```ruby
+# Example: Resize user avatar
+user.avatar.variant(resize_to_limit: [150, 150])
+```
+
+The application uses this for:
+- Photo thumbnails in inspection forms
+- User avatar display
+- Image compression for storage optimization
+
+## Active Storage Models
+
+### Attachments in the Application
+
+The application uses Active Storage attachments:
+
+```ruby
+# User model (app/models/user.rb)
+class User < ApplicationRecord
+  has_one_attached :avatar
+end
+```
+
+Form fills store photos and signatures as attachments, with metadata in the JSONB `data` column.
+
+### Database Tables
+
+Active Storage creates three tables:
+
+```ruby
+# active_storage_blobs - File metadata
+create_table "active_storage_blobs" do |t|
+  t.string "key", null: false
+  t.string "filename", null: false
+  t.string "content_type"
+  t.text "metadata"
+  t.string "service_name", null: false
+  t.bigint "byte_size", null: false
+  t.string "checksum"
+  t.datetime "created_at", null: false
+end
+
+# active_storage_attachments - Polymorphic join table
+create_table "active_storage_attachments" do |t|
+  t.string "name", null: false
+  t.string "record_type", null: false
+  t.bigint "record_id", null: false
+  t.bigint "blob_id", null: false
+  t.datetime "created_at", null: false
+end
+
+# active_storage_variant_records - Image variants
+create_table "active_storage_variant_records" do |t|
+  t.bigint "blob_id", null: false
+  t.string "variation_digest", null: false
+end
+```
+
+## File Upload Security
+
+### Content Type Validation
+
+The application uses the `marcel` gem for MIME type detection:
+
+```ruby
+# Validate PDF uploads
+validates :pdf, content_type: 'application/pdf'
+
+# Validate image uploads
+validates :photo, content_type: ['image/png', 'image/jpg', 'image/jpeg']
+```
+
+### File Size Limits
+
+Configure maximum file sizes:
+
+```ruby
+validates :photo, size: { less_than: 10.megabytes }
+```
+
+## Storage Best Practices
+
+### Development
+
+1. Use local disk storage for simplicity
+2. Add `storage/` to `.gitignore` (already configured)
+3. Test file uploads regularly
+
+### Production
+
+1. **Always use cloud storage** (S3, Spaces, etc.)
+2. **Enable CORS** if accessing files from different domains
+3. **Set proper bucket permissions**
+   - Private for sensitive documents
+   - Public-read for user-uploaded content (if needed)
+4. **Configure CDN** for better performance
+5. **Enable versioning** for backup
+6. **Set lifecycle policies** to manage costs
+
+### Security
+
+1. **Never commit credentials** to version control
+2. **Use IAM roles** when possible (AWS)
+3. **Rotate access keys** regularly
+4. **Validate file types** on upload
+5. **Scan uploaded files** for malware in production
+6. **Use signed URLs** for temporary access
+
+## Common Storage Tasks
+
+### Direct Upload (Optional)
+
+For large files, enable direct uploads to cloud storage:
+
+```ruby
+# config/environments/production.rb
+config.active_storage.variant_processor = :vips
+```
+
+```html
+<!-- In forms -->
+<%= form.file_field :photos, multiple: true, direct_upload: true %>
+```
+
+### Purging Files
+
+Remove attachments:
+
+```ruby
+# Purge immediately
+user.avatar.purge
+
+# Purge later (background job)
+user.avatar.purge_later
+```
+
+### Downloading Files
+
+```ruby
+# Get file URL
+url_for(user.avatar)
+
+# Download file content
+user.avatar.download
+```
+
+## Monitoring and Maintenance
+
+### Storage Usage
+
+Monitor storage consumption:
+
+```ruby
+# Count total blobs
+ActiveStorage::Blob.count
+
+# Total storage size
+ActiveStorage::Blob.sum(:byte_size) / 1.gigabyte
+```
+
+### Cleanup Orphaned Files
+
+Active Storage doesn't automatically delete files when records are destroyed. Use:
+
+```bash
+bin/rails active_storage:purge:unattached
+```
+
+<Warning>
+Test this command in development first. It permanently deletes files not attached to any records.
+</Warning>
+
+## Troubleshooting
+
+### Files Not Uploading
+
+1. Check environment configuration:
+   ```bash
+   bin/rails runner 'puts ActiveStorage::Blob.service.name'
+   ```
+
+2. Verify credentials are set:
+   ```bash
+   echo $DO_SPACES_KEY
+   ```
+
+3. Check bucket permissions
+
+### Image Processing Errors
+
+If image variants fail:
+
+```bash
+# Verify libvips installation
+vips --version
+
+# Install if missing
+sudo apt-get install libvips
+```
+
+### PDF Processing Errors
+
+If PDF operations fail:
+
+```bash
+# Verify pdftk installation
+pdftk --version
+
+# Install if missing
+sudo apt-get install pdftk
+```
+
+### Access Denied Errors
+
+1. Verify bucket name is correct
+2. Check access keys are valid
+3. Ensure bucket region matches configuration
+4. Verify bucket permissions allow read/write
+
+## Alternative Storage Services
+
+The application can work with any S3-compatible service:
+
+### Google Cloud Storage
+
+```yaml
+google:
+  service: GCS
+  project: your_project
+  credentials: <%= Rails.root.join("path/to/keyfile.json") %>
+  bucket: your-bucket-name
+```
+
+### Microsoft Azure
+
+```yaml
+microsoft:
+  service: AzureStorage
+  storage_account_name: your_account_name
+  storage_access_key: <%= ENV["AZURE_STORAGE_ACCESS_KEY"] %>
+  container: your-container-name
+```
+
+### Mirror Service (Multi-Cloud)
+
+```yaml
+mirror:
+  service: Mirror
+  primary: local
+  mirrors: [digitalocean, amazon]
+```
+
+## Next Steps
+
+- [Configure authentication](/config/authentication) to manage user uploads
+- Learn about [creating templates](/guides/creating-templates) and PDF processing
+- Explore [sync endpoints](/api/sync-endpoints) for offline functionality

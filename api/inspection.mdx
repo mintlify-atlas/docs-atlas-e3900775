@@ -1,0 +1,406 @@
+---
+title: Inspection
+description: API reference for the Inspection model
+---
+
+## Overview
+
+The `Inspection` model represents a fire protection system inspection conducted at a property. It manages the inspection workflow, associated forms, and deficiency tracking.
+
+## Database Schema
+
+### Attributes
+
+<ParamField path="id" type="integer" required>
+  Primary key
+</ParamField>
+
+<ParamField path="date" type="date" required>
+  Date when the inspection was/will be conducted
+  
+  **Indexed:** For efficient date-based queries
+  
+  **Validation:** Must be present
+</ParamField>
+
+<ParamField path="property_id" type="integer" required>
+  Foreign key to the property being inspected
+  
+  **Indexed:** For efficient property lookups and composite index with date
+  
+  **Validation:** Must be present
+</ParamField>
+
+<ParamField path="form_template_id" type="integer" required>
+  Foreign key to the main form template used for this inspection
+</ParamField>
+
+<ParamField path="user_id" type="integer" required>
+  Foreign key to the user (inspector) conducting the inspection
+</ParamField>
+
+<ParamField path="notes" type="text">
+  Additional notes or comments about the inspection
+</ParamField>
+
+<ParamField path="status" type="string" default="pending">
+  Current status of the inspection
+  
+  **Indexed:** For filtering inspections by status
+  
+  **Common values:** "pending", "in_progress", "completed"
+</ParamField>
+
+<ParamField path="system_category" type="string">
+  Category of the fire protection system being inspected (e.g., "Sprinkler", "Standpipe")
+</ParamField>
+
+<ParamField path="interval_category" type="string">
+  Inspection interval category (e.g., "Monthly", "Quarterly", "Annual")
+</ParamField>
+
+<ParamField path="job" type="string">
+  Job number or identifier for this inspection
+</ParamField>
+
+<ParamField path="created_at" type="datetime">
+  Timestamp when the inspection was created
+</ParamField>
+
+<ParamField path="updated_at" type="datetime">
+  Timestamp when the inspection was last updated
+</ParamField>
+
+## Associations
+
+### Belongs To
+
+<ParamField path="property" type="belongs_to" required>
+  The property where the inspection is conducted
+  
+  ```ruby
+  inspection = Inspection.find(1)
+  inspection.property # => #<Property...>
+  inspection.property_address # => "123 Main St, City, State"
+  ```
+</ParamField>
+
+<ParamField path="form_template" type="belongs_to" required>
+  The main form template for this inspection
+  
+  ```ruby
+  inspection = Inspection.find(1)
+  inspection.form_template # => #<FormTemplate...>
+  ```
+</ParamField>
+
+<ParamField path="user" type="belongs_to" required>
+  The inspector assigned to this inspection
+  
+  ```ruby
+  inspection = Inspection.find(1)
+  inspection.user # => #<User...>
+  ```
+</ParamField>
+
+### Has Many
+
+<ParamField path="form_fills" type="has_many">
+  All form fills associated with this inspection
+  
+  **Dependent:** `destroy` - Deletes all form fills when inspection is deleted
+  
+  ```ruby
+  inspection = Inspection.find(1)
+  inspection.form_fills # => [#<FormFill...>, #<FormFill...>]
+  ```
+</ParamField>
+
+### Delegations
+
+<ParamField path="customer" type="delegation">
+  Delegates to the property's customer
+  
+  ```ruby
+  inspection = Inspection.find(1)
+  inspection.customer # => #<Customer...>
+  ```
+</ParamField>
+
+## Validations
+
+```ruby
+validates :date, presence: true
+validates :property_id, presence: true
+```
+
+## Scopes
+
+### by_customer
+
+<ParamField path="by_customer(customer)" type="scope">
+  Filters inspections by customer through the property association.
+  
+  **Parameters:**
+  - `customer` (Customer) - The customer to filter by
+  
+  **Example:**
+  ```ruby
+  customer = Customer.find(1)
+  inspections = Inspection.by_customer(customer)
+  # => [#<Inspection...>, ...]
+  ```
+</ParamField>
+
+### by_date_range
+
+<ParamField path="by_date_range(start_date, end_date)" type="scope">
+  Filters inspections within a date range.
+  
+  **Parameters:**
+  - `start_date` (Date) - Start of the date range
+  - `end_date` (Date) - End of the date range
+  
+  **Example:**
+  ```ruby
+  inspections = Inspection.by_date_range(
+    Date.parse("2024-01-01"),
+    Date.parse("2024-01-31")
+  )
+  # => [#<Inspection...>, ...]
+  ```
+</ParamField>
+
+### recent
+
+<ParamField path="recent" type="scope">
+  Orders inspections by date in descending order (most recent first).
+  
+  **Example:**
+  ```ruby
+  recent_inspections = Inspection.recent.limit(10)
+  # => [#<Inspection...>, ...]
+  ```
+</ParamField>
+
+## Callbacks
+
+### After Update
+
+<ParamField path="trigger_deficiency_transfer" type="callback">
+  Automatically triggers deficiency transfer when inspection is marked as completed.
+  
+  **Trigger:** After update, when status changes to 'completed'
+  
+  **Implementation:**
+  ```ruby
+  after_update :trigger_deficiency_transfer, 
+    if: -> { saved_change_to_status? && status == 'completed' }
+  ```
+  
+  **Action:** Enqueues `TransferDeficienciesJob` to process deficiencies asynchronously
+  
+  **Example:**
+  ```ruby
+  inspection = Inspection.find(1)
+  inspection.update!(status: 'completed')
+  # TransferDeficienciesJob is automatically enqueued
+  ```
+</ParamField>
+
+## Public Methods
+
+### customer_name
+
+<ParamField path="customer_name" type="method">
+  Returns the name of the customer associated with this inspection.
+  
+  **Returns:** String
+  
+  **Example:**
+  ```ruby
+  inspection = Inspection.find(1)
+  inspection.customer_name # => "ABC Corporation"
+  ```
+  
+  **Implementation:**
+  ```ruby
+  def customer_name
+    property.customer.name
+  end
+  ```
+</ParamField>
+
+### property_address
+
+<ParamField path="property_address" type="method">
+  Returns the address of the property being inspected.
+  
+  **Returns:** String
+  
+  **Example:**
+  ```ruby
+  inspection = Inspection.find(1)
+  inspection.property_address # => "123 Main St, Springfield, IL 62701"
+  ```
+  
+  **Implementation:**
+  ```ruby
+  def property_address
+    property.address
+  end
+  ```
+</ParamField>
+
+## Usage Examples
+
+### Creating a New Inspection
+
+```ruby
+inspection = Inspection.create!(
+  date: Date.today,
+  property: Property.find(1),
+  form_template: FormTemplate.find(1),
+  user: User.find(1),
+  status: "pending",
+  system_category: "Fire Sprinkler",
+  interval_category: "Monthly",
+  job: "JOB-2024-001",
+  notes: "Regular monthly inspection"
+)
+```
+
+### Querying Inspections
+
+```ruby
+# Get recent inspections
+recent = Inspection.recent.limit(10)
+
+# Get inspections for a specific customer
+customer = Customer.find(1)
+customer_inspections = Inspection.by_customer(customer)
+
+# Get inspections in a date range
+january_inspections = Inspection.by_date_range(
+  Date.parse("2024-01-01"),
+  Date.parse("2024-01-31")
+)
+
+# Combine scopes
+completed_this_month = Inspection
+  .where(status: "completed")
+  .by_date_range(Date.today.beginning_of_month, Date.today.end_of_month)
+  .recent
+```
+
+### Working with Related Records
+
+```ruby
+inspection = Inspection.find(1)
+
+# Access property and customer information
+puts "Customer: #{inspection.customer_name}"
+puts "Address: #{inspection.property_address}"
+puts "Inspector: #{inspection.user.name}"
+
+# Access form fills
+inspection.form_fills.each do |form_fill|
+  puts "Form: #{form_fill.name}"
+  puts "Status: #{form_fill.pdf_generation_status}"
+end
+
+# Get the main form template
+template = inspection.form_template
+puts "Using template: #{template.name}"
+```
+
+### Completing an Inspection
+
+```ruby
+inspection = Inspection.find(1)
+
+# Update status to completed
+inspection.update!(status: "completed")
+
+# The after_update callback automatically triggers deficiency transfer
+# TransferDeficienciesJob.perform_later(inspection.id) is called
+
+# Check if completed
+inspection.reload
+puts "Status: #{inspection.status}" # => "completed"
+```
+
+### Creating an Inspection with Multiple Forms
+
+```ruby
+inspection = Inspection.create!(
+  date: Date.today,
+  property: property,
+  form_template: main_template,
+  user: inspector,
+  status: "pending"
+)
+
+# Create main form fill
+main_form = FormFill.create!(
+  name: "Main Inspection Form",
+  form_template: main_template,
+  inspection: inspection
+)
+
+# Create additional form fills
+additional_template = FormTemplate.find_by(name: "Additional Checklist")
+additional_form = FormFill.create!(
+  name: "Additional Checklist",
+  form_template: additional_template,
+  inspection: inspection
+)
+
+# Access all forms
+inspection.form_fills.count # => 2
+```
+
+### Filtering and Reporting
+
+```ruby
+# Get all pending inspections for a user
+inspector = User.find(1)
+pending_inspections = Inspection
+  .where(user: inspector, status: "pending")
+  .recent
+
+# Get inspections by system category
+sprinkler_inspections = Inspection
+  .where(system_category: "Fire Sprinkler")
+  .by_date_range(1.year.ago, Date.today)
+
+# Count inspections by status
+status_counts = Inspection
+  .group(:status)
+  .count
+# => { "pending" => 5, "completed" => 15, "in_progress" => 3 }
+```
+
+## Database Indexes
+
+The Inspection model uses several indexes for optimal query performance:
+
+```ruby
+# Single column indexes
+index ["date"]
+index ["status"]
+index ["form_template_id"]
+index ["property_id"]
+index ["user_id"]
+
+# Composite index
+index ["property_id", "date"]
+```
+
+## Related Models
+
+- [FormFill](/api/form-fill) - Form fills associated with this inspection
+- [FormTemplate](/api/form-template) - The template used for this inspection
+- Property - The property being inspected
+- User - The inspector conducting the inspection
+- Customer (via Property) - The customer who owns the property

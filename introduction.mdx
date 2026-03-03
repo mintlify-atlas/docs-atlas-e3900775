@@ -1,0 +1,186 @@
+---
+title: Welcome to PDF Form Parser
+description: Streamline fire inspection management with automated PDF form parsing, digital signatures, and comprehensive reporting
+---
+
+# Welcome to PDF Form Parser
+
+PDF Form Parser is a comprehensive SaaS fire inspection management system built with Rails 8 that transforms how fire safety inspections are conducted, documented, and reported.
+
+## Overview
+
+The system automatically parses PDF inspection forms, manages inspection workflows, tracks deficiencies, and generates professionally signed reports. Whether you're conducting weekly sprinkler checks or annual system inspections, PDF Form Parser streamlines the entire process from property setup to final report delivery.
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Get up and running in minutes with your first inspection
+  </Card>
+  
+  <Card title="Form templates" icon="file-pdf" href="/guides/creating-templates">
+    Upload and configure PDF inspection form templates
+  </Card>
+  
+  <Card title="Inspections" icon="clipboard-check" href="/guides/managing-inspections">
+    Schedule, conduct, and track fire safety inspections
+  </Card>
+  
+  <Card title="API reference" icon="code" href="/api/sync-endpoints">
+    Integrate with offline mobile apps and sync data
+  </Card>
+</CardGroup>
+
+## Key features
+
+### Intelligent PDF parsing
+
+Automatically extracts form fields from any PDF inspection template using the `PdfFormsParserService`. The system identifies:
+
+- Text fields, checkboxes, and radio buttons
+- Signature fields (both technician and client)
+- Field labels and human-readable names
+- Section organization and grouping
+
+```ruby
+parser = PdfFormsParserService.new(pdf_path)
+form_structure = parser.parse
+# Returns array of fields with name, type, label_name, section_name
+```
+
+### Multi-form inspection workflow
+
+Each inspection automatically generates multiple coordinated forms:
+
+- **Main form** - System-specific inspection (Wet Pipe, Dry Pipe, etc.)
+- **Deficiencies form** - Track issues found during inspection
+- **Additional Risers** - Document additional system components
+- **Corrected Deficiencies** - Follow-up on resolved issues
+
+All forms are linked to the inspection and auto-filled with property and contractor information via `HeaderAutoFillerService`.
+
+### Digital signature support
+
+Capture and embed signatures directly in PDF reports:
+
+- Technician signatures on field reports
+- Client signatures on completion certificates
+- Signature images stored securely with Active Storage
+- Automatic signature placement using `PdfSignatureService`
+
+### Photo documentation
+
+Attach multiple photos to any inspection field:
+
+- Photos organized by section and field
+- Unique attachment IDs for reliable retrieval
+- Automatic photo gallery generation in final PDFs
+- Support for before/after documentation
+
+```ruby
+form_fill.attach_photo_for_field("Sprinkler_Condition", photo_file)
+# Returns: { success: true, attachment_id: "inspection_123_sprinkler_condition_a1b2" }
+```
+
+### Deficiency tracking
+
+Comprehensive deficiency management:
+
+- Classify as Deficiency (D) or Correction (C)
+- Track item, riser, and location details
+- Automatic transfer to corrected deficiencies form when inspection is completed
+- Date stamping for compliance documentation
+
+### PDF report generation
+
+Generate professional inspection reports with:
+
+- Filled form data from all inspection forms
+- Embedded photos grouped by section
+- Client signature annexes with company branding
+- Merged PDFs combining main form + deficiencies + photos + signatures
+
+<Info>
+  The `PdfMergingService` handles all PDF assembly operations, including photo page generation and signature annex creation.
+</Info>
+
+### Offline synchronization
+
+Built-in offline capabilities for field technicians:
+
+- Download inspection data via API `/api/v1/inspections/:id/offline_data`
+- Work offline in the field
+- Sync completed forms and photos back to server
+- Progressive Web App (PWA) support
+
+### Flexible inspection intervals
+
+Support for all fire code inspection schedules:
+
+- Weekly, Monthly, Quarterly
+- Semi-Annual, Annual
+- 3-year, 5-year, 10-year cycles
+
+Inspection templates are linked to interval categories, ensuring the right form is used for each inspection type.
+
+## System architecture
+
+### Core models
+
+The application is built around these key models:
+
+- `Customer` - Property owners and management companies
+- `Property` - Individual buildings or facilities
+- `FormTemplate` - PDF form templates with parsed structure
+- `Inspection` - Scheduled inspection events
+- `FormFill` - Individual form instances with data
+- `Deficiency` - Tracked inspection findings
+
+### Data storage
+
+Form data is stored separately from structure:
+
+- `form_structure` - JSON array defining fields and layout
+- `data` - JSONB column storing field values
+- Active Storage for PDFs, photos, and signatures
+
+This separation enables template updates without losing inspection data.
+
+### Background processing
+
+Asynchronous jobs handle heavy operations:
+
+- `ParseFormTemplateJob` - Extract fields from uploaded PDFs
+- `GeneratePdfJob` - Create filled inspection reports
+- `TransferDeficienciesJob` - Copy deficiencies to correction forms
+
+## Security and compliance
+
+- Role-based access control (Admin, Technician, Developer)
+- User authentication via Devise
+- Active/inactive user management
+- Policy-based authorization with Pundit
+- Audit trails via inspection timestamps
+
+## Progressive Web App
+
+The system includes PWA support for offline field use:
+
+- Service worker for offline caching
+- Web app manifest for install prompts
+- Background sync capabilities
+- Responsive mobile interface
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Start with the quickstart" icon="play" href="/quickstart">
+    Follow the step-by-step guide to conduct your first inspection
+  </Card>
+  
+  <Card title="Explore the API" icon="terminal" href="/api/sync-endpoints">
+    Learn about offline sync and mobile integration
+  </Card>
+</CardGroup>
+
+<Note>
+  PDF Form Parser is built with Rails 8 and uses Active Storage, Active Job, and modern PostgreSQL features for optimal performance.
+</Note>

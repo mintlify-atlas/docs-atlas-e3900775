@@ -1,0 +1,132 @@
+---
+title: Creating Templates
+description: Learn how to upload and configure PDF form templates for your fire safety inspections
+---
+
+## Overview
+
+Form templates are the foundation of the PDF Form Parser system. They define the structure and fields that will be filled out during inspections. Once uploaded and configured, templates can be reused across multiple inspections for consistent reporting.
+
+## What You'll Need
+
+- A PDF form file (the original inspection form)
+- System category assignment (e.g., Sprinkler, Standpipe, Fire Alarm)
+- Interval categories (e.g., Monthly, Quarterly, Annual)
+
+## Upload a New Template
+
+<Steps>
+  <Step title="Navigate to Form Templates">
+    From the main navigation, go to **Form Templates** and click **New Template**.
+  </Step>
+
+  <Step title="Enter Template Details">
+    Fill in the following information:
+    - **Name**: Give your template a descriptive name (e.g., "Monthly Sprinkler Inspection")
+    - **System Category**: Select the fire safety system this template applies to
+    - **Interval Categories**: Choose one or more inspection intervals (monthly, quarterly, etc.)
+  </Step>
+
+  <Step title="Upload the PDF File">
+    Click **Choose File** and select your PDF form template from your computer. The system accepts standard PDF files.
+    
+    <Info>
+    The uploaded PDF will serve as the base template that gets filled with inspection data.
+    </Info>
+  </Step>
+
+  <Step title="Save the Template">
+    Click **Create Form Template** to upload and save your template. The system will process the PDF and make it available for inspections.
+  </Step>
+</Steps>
+
+## Configure Field Structure
+
+After uploading your template, you can define the form fields using the Form Builder.
+
+<Steps>
+  <Step title="Open Form Builder">
+    Navigate to your template's detail page and click **Form Builder**.
+  </Step>
+
+  <Step title="Define Form Fields">
+    The Form Builder allows you to specify:
+    - **Field names**: Unique identifiers for each form field
+    - **Field types**: Text, checkbox, date, photo, signature, deficiency, etc.
+    - **Section names**: Group fields by section for better organization
+    - **Label names**: User-friendly display names
+    
+    <Tip>
+    Use consistent naming conventions across templates to make data analysis easier later.
+    </Tip>
+  </Step>
+
+  <Step title="Save Field Structure">
+    Click **Update Form Structure** to save your field configuration.
+  </Step>
+</Steps>
+
+## Field Types Reference
+
+The system supports various field types to capture different kinds of inspection data:
+
+| Field Type | Description | Use Case |
+|------------|-------------|----------|
+| **Text** | Free-form text input | Notes, equipment IDs, locations |
+| **Checkbox** | Pass/Fail/N/A options | Compliance check items |
+| **Date** | Date picker | Inspection dates, next due dates |
+| **Photo** | Image upload | Visual documentation of equipment or deficiencies |
+| **Signature** | Digital signature capture | Technician and client sign-offs |
+| **Deficiency** | Structured deficiency recording | Track failures with item, riser, and severity |
+| **System Category** | System type selector | Auto-populated from inspection settings |
+| **Interval Category** | Inspection frequency | Auto-populated from inspection settings |
+
+<Note>
+Field structure updates will automatically sync to all form fills based on this template (see `form_template.rb:11` and `form_template.rb:25-29`).
+</Note>
+
+## Assign to System and Interval Categories
+
+Templates must be assigned to at least one system category and interval category combination. This ensures the right template is used when creating inspections.
+
+**Example Assignments:**
+- **Sprinkler System** + **Monthly** = Monthly Sprinkler Inspection Form
+- **Sprinkler System** + **Annual** = Annual Sprinkler Inspection Form
+- **Fire Alarm** + **Quarterly** = Quarterly Fire Alarm Inspection Form
+
+<Warning>
+You cannot delete a template that has been used in existing inspections (see `form_template.rb:2`). Create a new version instead.
+</Warning>
+
+## Special Templates
+
+The system automatically creates several standard templates for every inspection:
+
+### Deficiencies Template
+Captured automatically when deficiencies are found during the main inspection. This template compiles all "Fail" items for follow-up.
+
+### Additional Risers Template
+Used to document extra risers or systems beyond the primary inspection form.
+
+### Corrected Deficiencies Template
+Tracks resolution of previously identified deficiencies during follow-up visits.
+
+<Info>
+These templates are automatically instantiated when you create a new inspection (see `inspections_controller.rb:109-149`).
+</Info>
+
+## Best Practices
+
+<Tip>
+- **Use clear field names**: Avoid special characters or spaces in field names
+- **Group related fields**: Use section names to organize fields logically
+- **Test before deploying**: Create a test inspection to verify your template works correctly
+- **Document your structure**: Keep notes on custom fields for training purposes
+</Tip>
+
+## Next Steps
+
+Once your template is created and configured:
+1. [Create inspections](/guides/managing-inspections) using the template
+2. [Fill out forms](/guides/filling-forms) during field inspections
+3. [Generate reports](/guides/generating-reports) with completed data

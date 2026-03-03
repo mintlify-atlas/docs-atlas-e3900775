@@ -1,0 +1,605 @@
+---
+title: 'PdfSignatureService'
+description: 'Digital signature detection, validation, and signing for PDF documents'
+---
+
+## Overview
+
+The `PdfSignatureService` provides comprehensive digital signature functionality for PDF documents using HexaPDF. It handles signature field detection, metadata extraction, digital signing with certificates, and image stamping.
+
+**Key Features:**
+- Detect signature fields in PDFs
+- Read signature metadata (signer, date, reason, location)
+- Sign PDFs with digital certificates (P12/PFX or PEM)
+- Stamp signature images without certificates
+- PAdES-compliant signatures (Adobe compatible)
+
+**Dependencies:**
+- `hexapdf` gem for signature operations
+- `hexapdf/image_loader` for image processing
+
+**Source:** `app/services/pdf_signature_service.rb`
+
+---
+
+## SignatureInfo Structure
+
+Signature metadata is returned as a `Struct`:
+
+```ruby
+SignatureInfo = Struct.new(
+  :name,
+  :signing_time,
+  :reason,
+  :location,
+  :contact_info,
+  :sub_filter,
+  keyword_init: true
+)
+```
+
+<ResponseField name="name" type="string">
+  Name of the signer
+</ResponseField>
+
+<ResponseField name="signing_time" type="string">
+  Timestamp when document was signed (PDF date format)
+</ResponseField>
+
+<ResponseField name="reason" type="string">
+  Reason for signing (e.g., "Document approval")
+</ResponseField>
+
+<ResponseField name="location" type="string">
+  Location where document was signed
+</ResponseField>
+
+<ResponseField name="contact_info" type="string">
+  Contact information of the signer
+</ResponseField>
+
+<ResponseField name="sub_filter" type="string">
+  Signature format (e.g., "adbe.pkcs7.detached")
+</ResponseField>
+
+---
+
+## Class Methods
+
+### list_signature_fields
+
+Lists all signature fields in a PDF document and their status.
+
+```ruby
+PdfSignatureService.list_signature_fields(file_path)
+```
+
+<ParamField path="file_path" type="string" required>
+  Path to the PDF file to analyze
+</ParamField>
+
+<ResponseField name="return" type="array">
+  Array of hashes containing signature field information. Returns empty array on error.
+</ResponseField>
+
+**Return Hash Structure:**
+
+<ResponseField name="name" type="string">
+  Fully qualified field name
+</ResponseField>
+
+<ResponseField name="is_signed" type="boolean">
+  Whether the field contains a signature
+</ResponseField>
+
+<ResponseField name="info" type="SignatureInfo | nil">
+  Signature metadata if signed, `nil` if unsigned
+</ResponseField>
+
+**Example:**
+
+```ruby
+fields = PdfSignatureService.list_signature_fields('/path/to/document.pdf')
+
+fields.each do |field|
+  puts "Field: #{field[:name]}"
+  puts "Signed: #{field[:is_signed]}"
+  
+  if field[:is_signed] && field[:info]
+    puts "Signer: #{field[:info].name}"
+    puts "Date: #{field[:info].signing_time}"
+    puts "Reason: #{field[:info].reason}"
+    puts "Location: #{field[:info].location}"
+  end
+end
+```
+
+**Output Example:**
+
+```ruby
+[
+  {
+    name: "Inspector_Signature",
+    is_signed: true,
+    info: #<SignatureInfo
+      name="John Doe",
+      signing_time="D:20240315120000",
+      reason="Inspection completed",
+      location="San Francisco, CA",
+      contact_info="john@example.com",
+      sub_filter="adbe.pkcs7.detached"
+    >
+  },
+  {
+    name: "Client_Signature",
+    is_signed: false,
+    info: nil
+  }
+]
+```
+
+---
+
+### signature_info
+
+Retrieves signature metadata for a specific field.
+
+```ruby
+PdfSignatureService.signature_info(file_path, field_name)
+```
+
+<ParamField path="file_path" type="string" required>
+  Path to the PDF file
+</ParamField>
+
+<ParamField path="field_name" type="string" required>
+  Name of the signature field to query
+</ParamField>
+
+<ResponseField name="return" type="SignatureInfo | nil">
+  Signature metadata if field is signed, `nil` if unsigned or field not found
+</ResponseField>
+
+**Example:**
+
+```ruby
+info = PdfSignatureService.signature_info(
+  '/path/to/document.pdf',
+  'Inspector_Signature'
+)
+
+if info
+  puts "Signed by: #{info.name}"
+  puts "Date: #{info.signing_time}"
+  puts "Reason: #{info.reason}"
+  puts "Location: #{info.location}"
+else
+  puts "Field is not signed or does not exist"
+end
+```
+
+---
+
+### sign
+
+Digitally signs a PDF document in a specified signature field.
+
+```ruby
+PdfSignatureService.sign(
+  file_path,
+  output_path,
+  field_name,
+  certificate_path:,
+  certificate_password: nil,
+  key_path: nil,
+  reason: nil,
+  location: nil,
+  contact_info: nil,
+  name: nil,
+  signature_image_path: nil
+)
+```
+
+<ParamField path="file_path" type="string" required>
+  Path to the input PDF file
+</ParamField>
+
+<ParamField path="output_path" type="string" required>
+  Path where the signed PDF will be saved
+</ParamField>
+
+<ParamField path="field_name" type="string" required>
+  Name of the signature field to sign
+</ParamField>
+
+<ParamField path="certificate_path" type="string" required>
+  Path to certificate file (.p12, .pfx, or .pem)
+</ParamField>
+
+<ParamField path="certificate_password" type="string">
+  Password for P12/PFX certificate (required for P12/PFX)
+</ParamField>
+
+<ParamField path="key_path" type="string">
+  Path to PEM key file (required when using PEM certificate)
+</ParamField>
+
+<ParamField path="reason" type="string">
+  Reason for signing (e.g., "Document approval")
+</ParamField>
+
+<ParamField path="location" type="string">
+  Location where document is signed
+</ParamField>
+
+<ParamField path="contact_info" type="string">
+  Contact information of the signer
+</ParamField>
+
+<ParamField path="name" type="string">
+  Name of the signer (displayed in signature appearance)
+</ParamField>
+
+<ParamField path="signature_image_path" type="string">
+  Path to signature image (PNG/JPG) for visual appearance
+</ParamField>
+
+<ResponseField name="return" type="string">
+  Path to the signed PDF file
+</ResponseField>
+
+**Example (P12 Certificate):**
+
+```ruby
+PdfSignatureService.sign(
+  '/path/to/document.pdf',
+  '/path/to/signed.pdf',
+  'Inspector_Signature',
+  certificate_path: '/certs/inspector.p12',
+  certificate_password: 'secret123',
+  reason: 'Inspection completed',
+  location: 'San Francisco, CA',
+  contact_info: 'john@example.com',
+  name: 'John Doe',
+  signature_image_path: '/signatures/john_signature.png'
+)
+```
+
+**Example (PEM Certificate + Key):**
+
+```ruby
+PdfSignatureService.sign(
+  '/path/to/document.pdf',
+  '/path/to/signed.pdf',
+  'Inspector_Signature',
+  certificate_path: '/certs/cert.pem',
+  key_path: '/certs/private_key.pem',
+  reason: 'Document verification',
+  location: 'New York, NY',
+  name: 'Jane Smith'
+)
+```
+
+**Signature Appearance:**
+
+- If `signature_image_path` is provided: Image is embedded in the signature field
+- Otherwise: Text-based appearance is generated with signer name, reason, and location
+
+**Technical Details:**
+
+- Uses `adbe.pkcs7.detached` sub-filter (PAdES basic, Adobe compatible)
+- Attempts Ruby API first, falls back to CLI on failure
+- Validates signature field exists before signing
+- Raises error if field not found or signing fails
+
+---
+
+### stamp_signature_image
+
+Stamps a signature image onto a signature field without digital certificate.
+
+```ruby
+PdfSignatureService.stamp_signature_image(
+  file_path,
+  output_path,
+  field_name,
+  image_path,
+  scale_to_fit: true,
+  margin: 0,
+  allow_upscale: false
+)
+```
+
+<ParamField path="file_path" type="string" required>
+  Path to the input PDF file
+</ParamField>
+
+<ParamField path="output_path" type="string" required>
+  Path where the stamped PDF will be saved
+</ParamField>
+
+<ParamField path="field_name" type="string" required>
+  Name of the signature field where image will be placed
+</ParamField>
+
+<ParamField path="image_path" type="string" required>
+  Path to signature image file (PNG/JPG)
+</ParamField>
+
+<ParamField path="scale_to_fit" type="boolean" default="true">
+  Maintain image aspect ratio within field bounds
+</ParamField>
+
+<ParamField path="margin" type="number" default="0">
+  Internal margin (in points) within the signature field
+</ParamField>
+
+<ParamField path="allow_upscale" type="boolean" default="false">
+  Allow upscaling image beyond original size (may reduce quality)
+</ParamField>
+
+<ResponseField name="return" type="string">
+  Path to the output PDF file
+</ResponseField>
+
+**Example:**
+
+```ruby
+PdfSignatureService.stamp_signature_image(
+  '/path/to/document.pdf',
+  '/path/to/stamped.pdf',
+  'Client_Signature',
+  '/signatures/client_handwritten.png',
+  scale_to_fit: true,
+  margin: 5
+)
+```
+
+**Example (Fill entire field):**
+
+```ruby
+PdfSignatureService.stamp_signature_image(
+  '/path/to/document.pdf',
+  '/path/to/stamped.pdf',
+  'Client_Signature',
+  '/signatures/signature.png',
+  scale_to_fit: false,
+  margin: 0
+)
+```
+
+**How It Works:**
+
+1. Opens PDF and locates signature field widget (visible rectangle)
+2. Calculates image dimensions considering margins and scaling
+3. Draws image as overlay on the page containing the field
+4. Centers image within field if `scale_to_fit` is true
+5. Writes optimized PDF with embedded image
+
+**Error Handling:**
+
+<Warning>
+  This method stamps a visual image only. It does NOT create a cryptographic digital signature. For legally binding signatures, use the `sign` method with a certificate.
+</Warning>
+
+- Raises error if image file not found
+- Raises error if signature field not found
+- Falls back to `validate: false` if PDF has annotation validation issues
+- Logs errors and re-raises exceptions
+
+**Use Cases:**
+
+- Handwritten signatures from signature pads
+- Client signatures captured via web forms
+- Visual representation without legal binding
+- Preview signatures before final signing
+
+---
+
+## Internal Methods
+
+### signature_field?
+
+Checks if a field is a signature field.
+
+```ruby
+# Internal
+PdfSignatureService.signature_field?(field)
+```
+
+Returns `true` if field type is `:Sig`.
+
+---
+
+### extract_signature_info
+
+Extracts signature metadata from a signed field.
+
+```ruby
+# Internal
+PdfSignatureService.extract_signature_info(field)
+```
+
+Returns `SignatureInfo` struct or `nil` if unsigned.
+
+---
+
+### extract_field_name
+
+Robustly extracts field name across HexaPDF versions.
+
+```ruby
+# Internal
+PdfSignatureService.extract_field_name(field)
+```
+
+Tries multiple methods: `fully_qualified_name`, `full_name`, `name`, and falls back to `field[:T]`.
+
+---
+
+### build_signer
+
+Creates a HexaPDF signer object from certificate.
+
+```ruby
+# Internal
+PdfSignatureService.build_signer(certificate_path, certificate_password, key_path)
+```
+
+Supports:
+- P12/PFX: Uses `certificate_path` + `certificate_password`
+- PEM: Uses `certificate_path` + `key_path`
+
+---
+
+### build_appearance_text
+
+Generates text-based signature appearance.
+
+```ruby
+# Internal
+PdfSignatureService.build_appearance_text(name:, reason:, location:)
+```
+
+Example output:
+```
+Firmado por: John Doe
+Razón: Document approval
+Ubicación: San Francisco, CA
+```
+
+---
+
+## Complete Workflow Example
+
+```ruby
+# 1. List all signature fields
+fields = PdfSignatureService.list_signature_fields('/path/to/form.pdf')
+
+fields.each do |field|
+  puts "Field: #{field[:name]}"
+  puts "Status: #{field[:is_signed] ? 'Signed' : 'Unsigned'}"
+end
+
+# 2. Sign an unsigned field
+PdfSignatureService.sign(
+  '/path/to/form.pdf',
+  '/path/to/signed.pdf',
+  'Inspector_Signature',
+  certificate_path: '/certs/inspector.p12',
+  certificate_password: ENV['CERT_PASSWORD'],
+  reason: 'Inspection completed',
+  location: 'San Francisco, CA',
+  name: 'John Doe',
+  signature_image_path: '/signatures/john.png'
+)
+
+# 3. Stamp client signature (no certificate)
+PdfSignatureService.stamp_signature_image(
+  '/path/to/signed.pdf',
+  '/path/to/final.pdf',
+  'Client_Signature',
+  '/signatures/client_handwritten.png',
+  scale_to_fit: true,
+  margin: 5
+)
+
+# 4. Verify signatures in final document
+final_fields = PdfSignatureService.list_signature_fields('/path/to/final.pdf')
+
+final_fields.each do |field|
+  if field[:is_signed]
+    info = field[:info]
+    puts "✓ #{field[:name]} signed by #{info.name} on #{info.signing_time}"
+  else
+    puts "✗ #{field[:name]} is not signed"
+  end
+end
+```
+
+---
+
+## Certificate Formats
+
+### P12/PFX (Recommended)
+
+```ruby
+PdfSignatureService.sign(
+  input, output, field,
+  certificate_path: '/certs/certificate.p12',
+  certificate_password: 'password'
+)
+```
+
+**Advantages:**
+- Single file contains certificate + private key
+- Password protected
+- Industry standard
+
+### PEM Certificate + Key
+
+```ruby
+PdfSignatureService.sign(
+  input, output, field,
+  certificate_path: '/certs/certificate.pem',
+  key_path: '/certs/private_key.pem'
+)
+```
+
+**Advantages:**
+- Separate storage of certificate and key
+- Common in Unix/Linux environments
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Check Before Signing" icon="clipboard-check">
+    Use `list_signature_fields` to verify field exists and is unsigned
+  </Card>
+  
+  <Card title="Secure Certificates" icon="lock">
+    Store certificates securely and use environment variables for passwords
+  </Card>
+  
+  <Card title="Include Metadata" icon="circle-info">
+    Always provide reason, location, and signer name for audit trails
+  </Card>
+  
+  <Card title="Image + Certificate" icon="signature">
+    Combine `signature_image_path` with certificate for visual + legal validity
+  </Card>
+</CardGroup>
+
+---
+
+## Error Handling
+
+```ruby
+begin
+  PdfSignatureService.sign(
+    input, output, field,
+    certificate_path: cert_path,
+    certificate_password: password
+  )
+  puts "Document signed successfully"
+rescue StandardError => e
+  Rails.logger.error "Signature failed: #{e.message}"
+  # Handle error (notify user, retry, etc.)
+end
+```
+
+**Common Errors:**
+
+- "Campo de firma no encontrado": Field name doesn't exist
+- "Se requiere key_path para certificado PEM": Missing key file for PEM cert
+- "Imagen de firma no encontrada": Image path is invalid
+- "Widget del campo no encontrado": Signature field has no visible widget
+
+---
+
+## Related Services
+
+- [PdfFormsParserService](/api/pdf-forms-parser) - Form field parsing and filling
+- [PdfMergingService](/api/pdf-merging-service) - PDF merging with signatures

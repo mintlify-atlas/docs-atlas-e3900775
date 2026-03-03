@@ -1,0 +1,640 @@
+---
+title: FormFill
+description: API reference for the FormFill model
+---
+
+## Overview
+
+The `FormFill` model represents a filled-out form instance based on a `FormTemplate`. It manages form data, photo attachments, signatures, and PDF generation for inspections.
+
+## Database Schema
+
+### Attributes
+
+<ParamField path="id" type="integer" required>
+  Primary key
+</ParamField>
+
+<ParamField path="name" type="string">
+  Name of the form fill instance
+</ParamField>
+
+<ParamField path="form_template_id" type="integer" required>
+  Foreign key to the associated form template
+</ParamField>
+
+<ParamField path="inspection_id" type="integer">
+  Foreign key to the associated inspection (optional)
+</ParamField>
+
+<ParamField path="form_structure" type="string">
+  JSON string defining the form field structure (copied from template)
+</ParamField>
+
+<ParamField path="data" type="jsonb" default="{}">
+  JSONB column storing all form field values and metadata
+  
+  **Indexed:** GIN index for efficient querying
+</ParamField>
+
+<ParamField path="pdf_generation_status" type="enum" default="ready">
+  Status of PDF generation
+  
+  **Values:**
+  - `ready` - Ready to generate PDF
+  - `generating` - PDF generation in progress
+  - `completed` - PDF generated successfully
+  - `failed` - PDF generation error
+</ParamField>
+
+<ParamField path="pdf_created" type="boolean" default="false">
+  Whether an individual PDF has been created for this form fill
+  
+  **Indexed:** For efficient querying
+</ParamField>
+
+<ParamField path="last_generated_at" type="datetime">
+  Timestamp of last PDF generation
+</ParamField>
+
+<ParamField path="created_at" type="datetime">
+  Timestamp when the form fill was created
+</ParamField>
+
+<ParamField path="updated_at" type="datetime">
+  Timestamp when the form fill was last updated
+</ParamField>
+
+## Associations
+
+### Belongs To
+
+<ParamField path="form_template" type="belongs_to" required>
+  The template this form fill is based on
+  
+  ```ruby
+  form_fill = FormFill.find(1)
+  form_fill.form_template # => #<FormTemplate...>
+  ```
+</ParamField>
+
+<ParamField path="inspection" type="belongs_to">
+  The inspection this form fill belongs to (optional)
+  
+  ```ruby
+  form_fill = FormFill.find(1)
+  form_fill.inspection # => #<Inspection...> or nil
+  ```
+</ParamField>
+
+### Active Storage Attachments
+
+<ParamField path="filled_pdf" type="has_one_attached">
+  The generated PDF file for this form fill
+  
+  ```ruby
+  form_fill = FormFill.find(1)
+  form_fill.filled_pdf.attached? # => true/false
+  ```
+</ParamField>
+
+<ParamField path="photos" type="has_many_attached">
+  Multiple photos attached to various form fields
+  
+  ```ruby
+  form_fill = FormFill.find(1)
+  form_fill.photos.count # => 5
+  ```
+</ParamField>
+
+## Enums
+
+### pdf_generation_status
+
+```ruby
+enum :pdf_generation_status, {
+  ready: "ready",
+  generating: "generating",
+  completed: "completed",
+  failed: "failed"
+}
+```
+
+**Usage:**
+```ruby
+form_fill.ready? # => true
+form_fill.generating!
+form_fill.generating? # => true
+```
+
+## Data Column Methods
+
+### get_field_value
+
+<ParamField path="get_field_value(field_name)" type="method">
+  Retrieves the value for a specific field from the data column.
+  
+  **Parameters:**
+  - `field_name` (String) - Name of the field
+  
+  **Returns:** Field value or `nil`
+  
+  **Example:**
+  ```ruby
+  form_fill.get_field_value("inspector_name")
+  # => "John Doe"
+  ```
+</ParamField>
+
+### set_field_value
+
+<ParamField path="set_field_value(field_name, value)" type="method">
+  Stores a value for a specific field in the data column.
+  
+  **Parameters:**
+  - `field_name` (String) - Name of the field
+  - `value` (Any) - Value to store
+  
+  **Returns:** `true` if successful, `false` otherwise
+  
+  **Example:**
+  ```ruby
+  form_fill.set_field_value("inspector_name", "John Doe")
+  # => true
+  ```
+</ParamField>
+
+### bulk_update_data
+
+<ParamField path="bulk_update_data(field_hash)" type="method">
+  Updates multiple fields efficiently in a single operation.
+  
+  **Parameters:**
+  - `field_hash` (Hash) - Hash of field names and values
+  
+  **Returns:** `true` if successful, `false` otherwise
+  
+  **Example:**
+  ```ruby
+  form_fill.bulk_update_data({
+    inspector_name: "John Doe",
+    inspection_date: "2024-01-15",
+    status: "Pass"
+  })
+  # => true
+  ```
+</ParamField>
+
+## Photo Management Methods
+
+### attach_photo_for_field
+
+<ParamField path="attach_photo_for_field(field_name, photo_file)" type="method">
+  Attaches a photo to a specific field. Supports multiple photos per field.
+  
+  **Parameters:**
+  - `field_name` (String) - Name of the field
+  - `photo_file` (File/IO) - Photo file to attach
+  
+  **Returns:** Hash with `:success` and `:attachment_id` or `:error`
+  
+  **Example:**
+  ```ruby
+  result = form_fill.attach_photo_for_field(
+    "equipment_photo",
+    File.open("photo.jpg")
+  )
+  # => { success: true, attachment_id: "inspection_1_equipment_photo_a1b2c3d4" }
+  ```
+</ParamField>
+
+### get_photo_for_field
+
+<ParamField path="get_photo_for_field(field_name)" type="method">
+  Retrieves the last photo attached to a field.
+  
+  **Parameters:**
+  - `field_name` (String) - Name of the field
+  
+  **Returns:** ActiveStorage attachment or `nil`
+  
+  **Example:**
+  ```ruby
+  photo = form_fill.get_photo_for_field("equipment_photo")
+  photo.url # => "/rails/active_storage/blobs/.../photo.jpg"
+  ```
+</ParamField>
+
+### get_photos_for_field
+
+<ParamField path="get_photos_for_field(field_name)" type="method">
+  Retrieves all photos attached to a field.
+  
+  **Parameters:**
+  - `field_name` (String) - Name of the field
+  
+  **Returns:** Array of ActiveStorage attachments
+  
+  **Example:**
+  ```ruby
+  photos = form_fill.get_photos_for_field("equipment_photo")
+  photos.each { |photo| puts photo.filename }
+  ```
+</ParamField>
+
+### get_photos_by_field
+
+<ParamField path="get_photos_by_field" type="method">
+  Retrieves all photos organized by field name.
+  
+  **Returns:** Hash with field names as keys and arrays of photo data as values
+  
+  **Example:**
+  ```ruby
+  photos_hash = form_fill.get_photos_by_field
+  # => {
+  #   "equipment_photo" => [
+  #     { photo: #<ActiveStorage::Attachment>, attachment_id: "..." }
+  #   ],
+  #   "valve_photo" => [...]
+  # }
+  ```
+</ParamField>
+
+### remove_photo_for_field
+
+<ParamField path="remove_photo_for_field(field_name, photo_id = nil)" type="method">
+  Removes photo(s) from a field.
+  
+  **Parameters:**
+  - `field_name` (String) - Name of the field
+  - `photo_id` (String, optional) - Specific photo ID to remove; if nil, removes all photos
+  
+  **Returns:** Hash with `:success` and `:message` or `:error`
+  
+  **Example:**
+  ```ruby
+  # Remove all photos from field
+  form_fill.remove_photo_for_field("equipment_photo")
+  
+  # Remove specific photo
+  form_fill.remove_photo_for_field("equipment_photo", "inspection_1_equipment_photo_a1b2c3d4")
+  ```
+</ParamField>
+
+### get_photos_with_context
+
+<ParamField path="get_photos_with_context" type="method">
+  Retrieves all photos with their field context (type, section, label).
+  
+  **Returns:** Array of hashes with photo and field metadata
+  
+  **Example:**
+  ```ruby
+  photos = form_fill.get_photos_with_context
+  # => [
+  #   {
+  #     photo: #<ActiveStorage::Attachment>,
+  #     field_type: "Photo",
+  #     section_name: "Equipment Section",
+  #     label_name: "Main Valve"
+  #   }
+  # ]
+  ```
+</ParamField>
+
+## Signature Management Methods
+
+### attach_signature_for_field
+
+<ParamField path="attach_signature_for_field(field_name, image_file)" type="method">
+  Attaches a signature image to a signature field. Automatically handles technician vs. client signatures.
+  
+  **Parameters:**
+  - `field_name` (String) - Name of the signature field
+  - `image_file` (File/IO) - Signature image (PNG or JPEG)
+  
+  **Returns:** Hash with `:success` and `:attachment_id` or `:error`
+  
+  **Signature Types:**
+  - `Signature_Field` - Technician signature
+  - `Signature_Annex` - Client signature
+  
+  **Example:**
+  ```ruby
+  result = form_fill.attach_signature_for_field(
+    "technician_signature",
+    File.open("signature.png")
+  )
+  # => { success: true, attachment_id: "inspection_1_signature_technician_x7y8z9" }
+  ```
+</ParamField>
+
+### get_signature_for_field
+
+<ParamField path="get_signature_for_field(field_name)" type="method">
+  Retrieves the signature for a specific field. Automatically filters by signature type.
+  
+  **Parameters:**
+  - `field_name` (String) - Name of the signature field
+  
+  **Returns:** ActiveStorage attachment or `nil`
+  
+  **Example:**
+  ```ruby
+  signature = form_fill.get_signature_for_field("technician_signature")
+  signature.url # => "/rails/active_storage/blobs/.../signature.png"
+  ```
+</ParamField>
+
+### remove_all_signatures_for_field
+
+<ParamField path="remove_all_signatures_for_field(field_name)" type="method">
+  Removes all signatures from a signature field.
+  
+  **Parameters:**
+  - `field_name` (String) - Name of the signature field
+  
+  **Example:**
+  ```ruby
+  form_fill.remove_all_signatures_for_field("technician_signature")
+  ```
+</ParamField>
+
+## PDF Management Methods
+
+### pdf_url
+
+<ParamField path="pdf_url" type="method">
+  Returns the URL path for the generated PDF.
+  
+  **Returns:** String or `nil`
+  
+  **Example:**
+  ```ruby
+  form_fill.pdf_url
+  # => "/rails/active_storage/blobs/.../filled_form.pdf"
+  ```
+</ParamField>
+
+### mark_pdf_created!
+
+<ParamField path="mark_pdf_created!" type="method">
+  Marks the PDF as successfully created and updates timestamps.
+  
+  **Example:**
+  ```ruby
+  form_fill.mark_pdf_created!
+  form_fill.pdf_created? # => true
+  form_fill.completed? # => true
+  ```
+</ParamField>
+
+### has_individual_pdf?
+
+<ParamField path="has_individual_pdf?" type="method">
+  Checks if this form fill has an individual PDF created.
+  
+  **Returns:** Boolean
+  
+  **Example:**
+  ```ruby
+  form_fill.has_individual_pdf? # => true
+  ```
+</ParamField>
+
+### main_form_fill?
+
+<ParamField path="main_form_fill?" type="method">
+  Checks if this is the main form fill for the inspection.
+  
+  **Returns:** Boolean
+  
+  **Example:**
+  ```ruby
+  form_fill.main_form_fill? # => true
+  ```
+</ParamField>
+
+### should_include_in_main_merge?
+
+<ParamField path="should_include_in_main_merge?" type="method">
+  Determines if this form fill should be included in the main PDF merge.
+  
+  **Returns:** Boolean
+  
+  **Logic:** Returns true if PDF is created and this is not the main form fill
+  
+  **Example:**
+  ```ruby
+  form_fill.should_include_in_main_merge? # => false
+  ```
+</ParamField>
+
+## Data Analysis Methods
+
+### calculate_form_counts
+
+<ParamField path="calculate_form_counts" type="method">
+  Calculates counts of Pass, Fail, and N/A values in the form data.
+  
+  **Returns:** Hash with `:pass`, `:fail`, and `:na` counts
+  
+  **Example:**
+  ```ruby
+  counts = form_fill.calculate_form_counts
+  # => { pass: 15, fail: 2, na: 3 }
+  ```
+</ParamField>
+
+### get_sprinklers_data
+
+<ParamField path="get_sprinklers_data" type="method">
+  Extracts sprinkler-specific data from the form.
+  
+  **Returns:** Hash with sprinkler information
+  
+  **Example:**
+  ```ruby
+  sprinklers = form_fill.get_sprinklers_data
+  # => {
+  #   number: 150,
+  #   date: "2023-01-15",
+  #   brand: "Viking",
+  #   notes: "All functional"
+  # }
+  ```
+</ParamField>
+
+### get_deficiencies_for_processing
+
+<ParamField path="get_deficiencies_for_processing" type="method">
+  Retrieves all deficiency data for PDF generation.
+  
+  **Returns:** Array of deficiency hashes
+  
+  **Example:**
+  ```ruby
+  deficiencies = form_fill.get_deficiencies_for_processing
+  # => [
+  #   {
+  #     "name" => "valve_deficiency",
+  #     "value" => "Leaking",
+  #     "comment_value" => "Requires replacement",
+  #     "Item" => "Main Valve",
+  #     "Riser" => "A1",
+  #     "C" => "Critical",
+  #     "D" => "Immediate"
+  #   }
+  # ]
+  ```
+</ParamField>
+
+## Legacy Data Migration
+
+### has_legacy_data?
+
+<ParamField path="has_legacy_data?" type="method">
+  Checks if this form fill has legacy data stored in `form_structure`.
+  
+  **Returns:** Boolean
+  
+  **Example:**
+  ```ruby
+  form_fill.has_legacy_data? # => false
+  ```
+</ParamField>
+
+### migrate_legacy_data!
+
+<ParamField path="migrate_legacy_data!" type="method">
+  Migrates legacy data from `form_structure` to the new `data` column.
+  
+  **Returns:** Boolean indicating success
+  
+  **Example:**
+  ```ruby
+  form_fill.migrate_legacy_data!
+  # Moves all field values from form_structure to data column
+  ```
+</ParamField>
+
+### merge_structure_with_data
+
+<ParamField path="merge_structure_with_data" type="method">
+  Merges form structure with data values for PDF generation.
+  
+  **Returns:** Array of field hashes with values
+  
+  **Example:**
+  ```ruby
+  merged = form_fill.merge_structure_with_data
+  # => [
+  #   { "name" => "inspector_name", "type" => "Text", "value" => "John Doe" },
+  #   ...
+  # ]
+  ```
+</ParamField>
+
+## Utility Methods
+
+### cleanup_duplicate_photos!
+
+<ParamField path="cleanup_duplicate_photos!" type="method">
+  Removes duplicate photos, keeping only the most recent for each field.
+  
+  **Returns:** Hash with cleanup statistics
+  
+  **Example:**
+  ```ruby
+  result = form_fill.cleanup_duplicate_photos!
+  # => { cleaned: 3, message: "Cleaned 3 duplicate photos" }
+  ```
+</ParamField>
+
+### sync_photos_with_structure!
+
+<ParamField path="sync_photos_with_structure!" type="method">
+  Synchronizes existing photos with the form structure.
+  
+  **Returns:** Boolean indicating success
+  
+  **Example:**
+  ```ruby
+  form_fill.sync_photos_with_structure!
+  # => true
+  ```
+</ParamField>
+
+## Usage Examples
+
+### Creating and Filling a Form
+
+```ruby
+# Create a form fill from a template
+form_fill = FormFill.create!(
+  name: "Monthly Inspection - January 2024",
+  form_template: template,
+  inspection: inspection
+)
+
+# Fill in form data
+form_fill.bulk_update_data({
+  inspector_name: "John Doe",
+  inspection_date: "2024-01-15",
+  valve_status: "Pass",
+  pump_status: "Pass"
+})
+
+# Attach photos
+form_fill.attach_photo_for_field("valve_photo", File.open("valve.jpg"))
+form_fill.attach_photo_for_field("pump_photo", File.open("pump.jpg"))
+
+# Attach signatures
+form_fill.attach_signature_for_field("technician_signature", File.open("sig.png"))
+```
+
+### Generating a PDF
+
+```ruby
+form_fill = FormFill.find(1)
+
+# Update status to generating
+form_fill.generating!
+
+# Generate PDF (in your service)
+# ...
+
+# Mark as completed
+form_fill.mark_pdf_created!
+
+# Access the PDF
+url = form_fill.pdf_url
+```
+
+### Querying Form Data
+
+```ruby
+form_fill = FormFill.find(1)
+
+# Get specific field value
+inspector = form_fill.get_field_value("inspector_name")
+
+# Get all photos for a field
+photos = form_fill.get_photos_for_field("equipment_photo")
+
+# Get form statistics
+counts = form_fill.calculate_form_counts
+puts "Passed: #{counts[:pass]}, Failed: #{counts[:fail]}, N/A: #{counts[:na]}"
+
+# Get all deficiencies
+deficiencies = form_fill.get_deficiencies_for_processing
+deficiencies.each do |def|
+  puts "#{def['Item']}: #{def['value']} - #{def['comment_value']}"
+end
+```
+
+## Related Models
+
+- [FormTemplate](/api/form-template) - The template this form is based on
+- [Inspection](/api/inspection) - The inspection this form belongs to

@@ -1,0 +1,266 @@
+---
+title: Initial Setup
+description: Configure dependencies, environment variables, and prepare your development environment for the PDF Form Parser application
+---
+
+## Prerequisites
+
+Before setting up the PDF Form Parser application, ensure you have the following installed:
+
+- **Ruby 3.4.1** - The application uses Ruby 3.4.1 as specified in the Dockerfile
+- **PostgreSQL 9.3+** - Required for the database
+- **Node.js and npm** - For JavaScript asset management
+- **pdftk** - PDF toolkit for form processing
+- **libvips** - Image processing library for Active Storage variants
+
+## System Dependencies
+
+The application requires several system packages. On Debian/Ubuntu:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential \
+  git \
+  libpq-dev \
+  libyaml-dev \
+  pkg-config \
+  postgresql-client \
+  pdftk \
+  libvips \
+  curl
+```
+
+## Installing Dependencies
+
+### 1. Clone the Repository
+
+```bash
+git clone <repository-url>
+cd form_processor
+```
+
+### 2. Install Ruby Gems
+
+The application uses Bundler to manage Ruby dependencies:
+
+```bash
+bundle install
+```
+
+### Key Gems
+
+The application includes these essential gems:
+
+- **rails 8.0.2** - Web framework
+- **pg** - PostgreSQL adapter
+- **devise 4.9** - User authentication
+- **pundit** - Authorization
+- **pdf-forms** - Reading PDF form fields
+- **hexapdf 0.36** - PDF digital signatures (PAdES)
+- **combine_pdf** - Merging PDFs
+- **prawn** - PDF generation
+- **aws-sdk-s3** - S3-compatible storage
+- **image_processing** - Image transformations
+- **solid_cache, solid_queue, solid_cable** - Rails 8 solid libraries
+- **kaminari** - Pagination
+- **tailwindcss-rails** - CSS framework
+
+### 3. Install JavaScript Dependencies
+
+```bash
+npm install
+```
+
+## Environment Configuration
+
+### Development Environment
+
+Create a `.env` file in the root directory for development. The application uses the `dotenv-rails` gem to load environment variables.
+
+```bash
+# .env
+
+# Database Configuration (optional in development)
+# RAILS_MAX_THREADS=5
+
+# SMTP Configuration for Email
+SMTP_SERVER=smtp.mailgun.org
+SMTP_PORT=587
+SMTP_DOMAIN=your-domain.com
+SMTP_USERNAME=your-smtp-username
+SMTP_PASSWORD=your-smtp-password
+SMTP_AUTH_METHOD=plain
+
+# Application Host (for mailer links)
+APP_HOST=localhost:3000
+```
+
+<Note>
+The `dotenv-rails` gem is only available in development and test environments. In production, set environment variables through your hosting platform.
+</Note>
+
+### Production Environment Variables
+
+For production deployment, configure these environment variables:
+
+```bash
+# Database
+DATABASE_URL=postgresql://user:password@host:5432/form_processor_production
+POSTGRES_PASSWORD=your-secure-password
+RAILS_MAX_THREADS=5
+
+# Rails
+RAILS_ENV=production
+RAILS_MASTER_KEY=<your-master-key-from-config/master.key>
+RAILS_LOG_LEVEL=info
+
+# Application
+APP_HOST=your-domain.com
+
+# SMTP Configuration
+SMTP_SERVER=smtp.your-provider.com
+SMTP_PORT=587
+SMTP_DOMAIN=your-domain.com
+SMTP_USERNAME=your-smtp-username
+SMTP_PASSWORD=your-smtp-password
+SMTP_AUTH_METHOD=plain
+
+# DigitalOcean Spaces (or S3-compatible storage)
+DO_SPACES_ENDPOINT=https://nyc3.digitaloceanspaces.com
+DO_SPACES_KEY=your-spaces-access-key
+DO_SPACES_SECRET=your-spaces-secret-key
+DO_SPACES_REGION=us-east-1
+DO_SPACES_BUCKET=your-bucket-name
+```
+
+<Warning>
+Never commit the `.env` file or `config/master.key` to version control. These contain sensitive credentials.
+</Warning>
+
+## Running the Application
+
+### Development Server
+
+Start the development server using the Rails server:
+
+```bash
+bin/rails server
+```
+
+Or use the Procfile for development (includes Tailwind CSS watching):
+
+```bash
+bin/dev
+```
+
+The application will be available at `http://localhost:3000`.
+
+### Console Access
+
+Access the Rails console for debugging and data manipulation:
+
+```bash
+bin/rails console
+```
+
+### Running Tests
+
+Execute the test suite:
+
+```bash
+bin/rails test
+```
+
+For system tests:
+
+```bash
+bin/rails test:system
+```
+
+## Docker Setup
+
+The application includes a production-ready Dockerfile for containerized deployment.
+
+### Building the Image
+
+```bash
+docker build -t form_processor .
+```
+
+### Running with Docker
+
+```bash
+docker run -d -p 80:80 \
+  -e RAILS_MASTER_KEY=<value-from-config/master.key> \
+  -e DATABASE_URL=<your-database-url> \
+  --name form_processor \
+  form_processor
+```
+
+<Note>
+The Dockerfile uses a multi-stage build to minimize image size. The final image runs as a non-root user for security.
+</Note>
+
+## Deployment with Kamal
+
+The application is configured for deployment using Kamal:
+
+```bash
+# Deploy to production
+kamal deploy
+```
+
+Refer to the Kamal documentation for configuration details.
+
+## Configuration Files
+
+- `config/application.rb` - Main application configuration
+- `config/environments/development.rb` - Development settings
+- `config/environments/production.rb` - Production settings
+- `config/database.yml` - Database configuration
+- `config/storage.yml` - Active Storage configuration
+- `config/initializers/devise.rb` - Authentication configuration
+
+## Next Steps
+
+After completing the initial setup:
+
+1. [Configure the database](/config/database) and run migrations
+2. [Set up Active Storage](/config/storage) for file uploads
+3. [Configure authentication](/config/authentication) and create your first user
+
+## Troubleshooting
+
+### Missing pdftk
+
+If you encounter errors about `pdftk` not being found:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install pdftk
+
+# macOS
+brew install pdftk-java
+```
+
+### libvips Errors
+
+For image processing issues:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install libvips
+
+# macOS
+brew install vips
+```
+
+### Bundle Install Failures
+
+If `bundle install` fails with pg gem errors:
+
+```bash
+# Install PostgreSQL development headers
+sudo apt-get install libpq-dev
+```

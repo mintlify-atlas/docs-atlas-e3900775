@@ -1,0 +1,547 @@
+---
+title: 'PdfMergingService'
+description: 'Merge PDF documents and append photo annexes with structured layouts'
+---
+
+## Overview
+
+The `PdfMergingService` combines multiple PDF documents and generates professional photo annexes with automatic layout formatting. It's designed for inspection reports that include form data, deficiency lists, and photo documentation.
+
+**Key Features:**
+- Merge main PDF with deficiency reports
+- Generate photo annexes with grid layouts
+- Create signature annex pages with inspection metadata
+- Automatic section grouping and pagination
+- Professional report formatting with headers and borders
+
+**Dependencies:**
+- `combine_pdf` gem for PDF merging
+- `prawn` gem for PDF generation
+- Active Storage attachments for photos
+
+**Source:** `app/services/pdf_merging_service.rb`
+
+---
+
+## Initialization
+
+### Constructor
+
+```ruby
+PdfMergingService.new(main_pdf_path, deficiencies_pdf_path = nil)
+```
+
+<ParamField path="main_pdf_path" type="string" required>
+  Path to the main PDF document (e.g., filled inspection form)
+</ParamField>
+
+<ParamField path="deficiencies_pdf_path" type="string">
+  Optional path to deficiencies report PDF
+</ParamField>
+
+**Example:**
+
+```ruby
+service = PdfMergingService.new(
+  '/path/to/inspection_form.pdf',
+  '/path/to/deficiencies.pdf'
+)
+```
+
+---
+
+## Instance Methods
+
+### merge
+
+Merges the main PDF with the deficiencies PDF (if provided).
+
+```ruby
+service.merge
+```
+
+<ResponseField name="return" type="CombinePDF">
+  Combined PDF object (not yet written to file)
+</ResponseField>
+
+**Example:**
+
+```ruby
+service = PdfMergingService.new(
+  '/path/to/main.pdf',
+  '/path/to/deficiencies.pdf'
+)
+
+pdf_object = service.merge
+pdf_object.save '/path/to/merged.pdf'
+```
+
+**Usage Note:**
+
+<Info>
+  This method returns a `CombinePDF` object, not a file path. Use `.save(path)` to write the merged PDF to disk.
+</Info>
+
+---
+
+## Class Methods
+
+### add_images_to_pdf
+
+Appends photo documentation pages to a PDF with automatic grid layout and section grouping.
+
+```ruby
+PdfMergingService.add_images_to_pdf(
+  pdf_object,
+  photos_with_context,
+  title:
+)
+```
+
+<ParamField path="pdf_object" type="CombinePDF" required>
+  PDF object to append photos to
+</ParamField>
+
+<ParamField path="photos_with_context" type="array" required>
+  Array of photo hashes with metadata. Each hash should include:
+  - `photo` (ActiveStorage::Attachment): The photo attachment
+  - `section_name` (string): Section identifier (e.g., "Section A | Item 1")
+  - `label_name` (string): Photo label/caption
+</ParamField>
+
+<ParamField path="title" type="string" required>
+  Title displayed at the top of the photo annex (e.g., "Photo Documentation")
+</ParamField>
+
+<ResponseField name="return" type="CombinePDF">
+  Updated PDF object with photo pages appended
+</ResponseField>
+
+**Example:**
+
+```ruby
+photos = [
+  {
+    photo: inspection.photos.first,
+    section_name: "Section A | Fire Extinguisher",
+    label_name: "Front View"
+  },
+  {
+    photo: inspection.photos.second,
+    section_name: "Section A | Fire Extinguisher",
+    label_name: "Pressure Gauge"
+  },
+  {
+    photo: inspection.photos.third,
+    section_name: "Section B | Sprinkler System",
+    label_name: "Control Valve"
+  }
+]
+
+pdf_object = CombinePDF.load('/path/to/report.pdf')
+
+PdfMergingService.add_images_to_pdf(
+  pdf_object,
+  photos,
+  title: "Inspection Photo Documentation"
+)
+
+pdf_object.save('/path/to/report_with_photos.pdf')
+```
+
+**Layout Details:**
+
+- **Grid Layout:** 4 columns per row
+- **Cell Size:** Square cells with auto-calculated width
+- **Caption Height:** 15 points below each image
+- **Padding:** 10 points between cells
+- **Image Fitting:** Images scaled to fit while maintaining aspect ratio
+- **Auto Pagination:** New page created when row doesn't fit
+
+**Section Grouping:**
+
+Photos are automatically grouped by the text before the `|` character:
+
+```ruby
+"Section A | Fire Extinguisher"  → Group: "Section A"
+"Section A | Sprinkler Head"     → Group: "Section A"
+"Section B | Emergency Exit"     → Group: "Section B"
+```
+
+Each section gets:
+- Section header with name
+- Horizontal rule separator
+- All photos in that section
+
+**Caption Logic:**
+
+1. If `section_name` contains `|`: Use text after `|` as caption
+2. Otherwise: Use `label_name`
+3. Fallback: Use filename
+
+**Signature Filtering:**
+
+<Warning>
+  Photos with filenames containing "_signature_", "signature_", or "firma" are automatically excluded to prevent signature images from appearing in photo documentation.
+</Warning>
+
+---
+
+### add_signature_annexes
+
+Appends professional signature annex pages with inspection metadata and signature images.
+
+```ruby
+PdfMergingService.add_signature_annexes(
+  pdf_object,
+  signature_images,
+  inspection
+)
+```
+
+<ParamField path="pdf_object" type="CombinePDF" required>
+  PDF object to append signature pages to
+</ParamField>
+
+<ParamField path="signature_images" type="array" required>
+  Array of signature image attachments or binary data
+</ParamField>
+
+<ParamField path="inspection" type="Inspection" required>
+  Inspection model with associated property, customer, and metadata
+</ParamField>
+
+<ResponseField name="return" type="CombinePDF">
+  Updated PDF object with signature annex pages
+</ResponseField>
+
+**Example:**
+
+```ruby
+pdf_object = CombinePDF.load('/path/to/report.pdf')
+
+signature_images = [
+  inspection.customer_signature,
+  inspection.property_owner_signature
+]
+
+PdfMergingService.add_signature_annexes(
+  pdf_object,
+  signature_images,
+  inspection
+)
+
+pdf_object.save('/path/to/report_with_signatures.pdf')
+```
+
+**Page Layout:**
+
+Each signature creates one full page with:
+
+### Top Section (Header Box)
+
+- **Title:** "Report of Inspection / Test"
+- **Three columns:**
+  1. **Left:** Date, Property Address, Job #
+  2. **Middle:** Inspection conducted by (contractor info, license, email)
+  3. **Right:** Company logo
+
+### Middle Section (Grey Bar)
+
+- **Label:** "Customers Signature" on grey background with border
+
+### Bottom Section (Signature Table)
+
+- **Three columns:**
+  1. **Customer Name** (180 pts wide)
+  2. **Signature Image** (272 pts wide) - signature displayed here
+  3. **Date** (100 pts wide)
+
+**Data Sources:**
+
+The method pulls data from multiple models:
+
+```ruby
+inspection.date                     # Inspection date
+inspection.job                      # Job number
+inspection.property.address         # Property address
+inspection.property.customer.name   # Customer name
+
+ContractorInfo.first.name           # Contractor name
+ContractorInfo.first.address        # Contractor address
+LicenseInfo.first.license_number    # License number
+```
+
+**Logo:**
+
+Expects logo at: `app/assets/images/firemex_logo.png`
+
+**Error Handling:**
+
+```ruby
+begin
+  # Signature image processing with error handling
+  data = image.respond_to?(:download) ? image.download : image
+  sio = StringIO.new(data)
+  pdf.image sio, fit: [262, 90], position: :center
+rescue StandardError => e
+  Rails.logger.error("Could not embed signature image: #{e.message}")
+end
+```
+
+Failed signature images are logged but don't prevent page generation.
+
+---
+
+## Complete Workflow Example
+
+```ruby
+# 1. Create service with main form and deficiencies
+service = PdfMergingService.new(
+  '/tmp/filled_inspection_form.pdf',
+  '/tmp/deficiencies_report.pdf'
+)
+
+# 2. Merge base PDFs
+pdf_object = service.merge
+
+# 3. Prepare photo data
+photos_with_context = inspection.photos.map do |photo|
+  {
+    photo: photo,
+    section_name: photo.metadata['section_name'],
+    label_name: photo.metadata['label']
+  }
+end
+
+# 4. Add photo documentation
+PdfMergingService.add_images_to_pdf(
+  pdf_object,
+  photos_with_context,
+  title: "Fire Safety Inspection - Photo Documentation"
+)
+
+# 5. Add signature annexes
+signature_images = [
+  inspection.customer_signature,
+  inspection.property_owner_signature
+]
+
+PdfMergingService.add_signature_annexes(
+  pdf_object,
+  signature_images,
+  inspection
+)
+
+# 6. Save final PDF
+final_path = Rails.root.join('tmp', "inspection_#{inspection.id}_complete.pdf")
+pdf_object.save(final_path)
+
+puts "Complete report saved: #{final_path}"
+```
+
+---
+
+## Layout Calculations
+
+### Photo Grid
+
+```ruby
+num_columns = 4
+padding = 10
+label_height = 15
+
+cell_width = (pdf.bounds.width - (padding * (num_columns - 1))) / num_columns
+cell_height = cell_width + label_height
+```
+
+**On Letter size (8.5" × 11") with 30pt margins:**
+- Usable width: 552 points
+- Cell width: ≈ 133 points
+- Cell height: ≈ 148 points
+- 4 photos per row
+
+### Signature Table
+
+```ruby
+table_columns = [
+  { width: 180, label: "Customer Name" },
+  { width: 272, label: "Signature" },
+  { width: 100, label: "Date" }
+]
+
+table_height = 120 # points
+```
+
+---
+
+## Photo Metadata Structure
+
+**Required Structure:**
+
+```ruby
+{
+  photo: ActiveStorage::Attachment,
+  section_name: "Main Section | Sub Item",
+  label_name: "Optional fallback label"
+}
+```
+
+**Examples:**
+
+```ruby
+# Good: Section with sub-item
+{
+  photo: attachment,
+  section_name: "Fire Extinguishers | Unit 101",
+  label_name: "Pressure Gauge"
+}
+# Caption: "Unit 101"
+
+# Good: Section without sub-item
+{
+  photo: attachment,
+  section_name: "Emergency Exits",
+  label_name: "Exit Sign Illumination"
+}
+# Caption: "Exit Sign Illumination"
+
+# Edge case: No section
+{
+  photo: attachment,
+  section_name: nil,
+  label_name: "Miscellaneous"
+}
+# Grouped under: "Uncategorized Photos"
+# Caption: "Miscellaneous"
+```
+
+---
+
+## Pagination Control
+
+The service handles pagination automatically:
+
+```ruby
+# Start new page if section header won't fit
+pdf.start_new_page if pdf.cursor < 50
+
+# Start new page if photo row won't fit
+pdf.start_new_page if pdf.cursor < cell_height
+```
+
+**Cursor Tracking:**
+
+- `pdf.cursor`: Current Y position on page
+- New page created when content doesn't fit
+- Ensures no content is cut off
+
+---
+
+## Customization Examples
+
+### Custom Photo Grid (3 columns)
+
+```ruby
+# Modify in add_images_to_pdf method
+num_columns = 3  # Change from 4 to 3
+```
+
+### Custom Title Formatting
+
+```ruby
+PdfMergingService.add_images_to_pdf(
+  pdf_object,
+  photos,
+  title: "FIRE SAFETY INSPECTION\nPhoto Evidence - #{Date.today}"
+)
+```
+
+### Multiple Signature Pages
+
+```ruby
+# Create separate signature page for each role
+inspector_sigs = [inspection.inspector_signature]
+client_sigs = [inspection.client_signature]
+
+PdfMergingService.add_signature_annexes(pdf_object, inspector_sigs, inspection)
+PdfMergingService.add_signature_annexes(pdf_object, client_sigs, inspection)
+```
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Validate Photos" icon="image">
+    Filter out invalid attachments before passing to `add_images_to_pdf`
+  </Card>
+  
+  <Card title="Section Naming" icon="tags">
+    Use consistent "Main | Sub" format for section names for proper grouping
+  </Card>
+  
+  <Card title="Error Handling" icon="shield-check">
+    Wrap photo processing in error handlers to prevent single image failures from breaking the entire annex
+  </Card>
+  
+  <Card title="Memory Management" icon="memory">
+    For large reports (100+ photos), process in batches and save intermediate PDFs
+  </Card>
+</CardGroup>
+
+---
+
+## Error Scenarios
+
+### Missing Photo Data
+
+```ruby
+if photos_with_context.empty?
+  # add_images_to_pdf returns pdf_object unchanged
+  # No photo pages added
+end
+```
+
+### Corrupt Image
+
+```ruby
+rescue StandardError => e
+  Rails.logger.error "Could not process image #{photo_data[:photo].filename}: #{e.message}"
+  next # Skip this photo, continue with others
+end
+```
+
+### Missing Inspection Data
+
+```ruby
+# Fallback to empty strings
+inspection_date = inspection.date&.strftime("%m/%d/%Y") || ""
+customer_name = inspection.property&.customer&.name || ""
+```
+
+---
+
+## Related Services
+
+- [PdfFormsParserService](/api/pdf-forms-parser) - Fill inspection forms
+- [PdfSignatureService](/api/pdf-signature-service) - Sign merged documents
+
+---
+
+## Performance Considerations
+
+**Image Processing:**
+- Images are downloaded from Active Storage during generation
+- Large images (>5MB) may slow generation
+- Consider resizing images before attachment
+
+**Memory Usage:**
+- Each photo is loaded into memory as StringIO
+- 100 photos ≈ 50-200MB RAM depending on image sizes
+- Use `GC.start` between large batches if needed
+
+**Generation Time:**
+- ~0.5-1 second per photo page (4 photos)
+- ~2-3 seconds per signature page
+- Total: 50 photos + 2 signatures ≈ 15-20 seconds

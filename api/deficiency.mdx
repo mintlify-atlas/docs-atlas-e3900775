@@ -1,0 +1,325 @@
+---
+title: Deficiency
+description: API reference for the Deficiency model
+---
+
+## Overview
+
+The `Deficiency` model represents a unique deficiency type that can be identified during inspections. It maintains a catalog of standardized deficiency names for consistent reporting across inspections.
+
+## Database Schema
+
+### Attributes
+
+<ParamField path="id" type="integer" required>
+  Primary key
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Name of the deficiency
+  
+  **Indexed:** Unique index for fast lookups and uniqueness enforcement
+  
+  **Validation:** Must be present and unique (case-insensitive)
+  
+  **Examples:**
+  - "Leaking valve"
+  - "Missing sprinkler head"
+  - "Corroded pipe"
+  - "Obstructed access"
+</ParamField>
+
+<ParamField path="created_at" type="datetime">
+  Timestamp when the deficiency was created
+</ParamField>
+
+<ParamField path="updated_at" type="datetime">
+  Timestamp when the deficiency was last updated
+</ParamField>
+
+## Validations
+
+```ruby
+validates :name, presence: true, uniqueness: { case_sensitive: false }
+```
+
+### Validation Details
+
+<ParamField path="name" type="validation">
+  **Presence:** Must not be blank
+  
+  **Uniqueness:** Must be unique across all deficiencies (case-insensitive)
+  
+  **Examples:**
+  ```ruby
+  # Valid
+  Deficiency.create!(name: "Leaking Valve")
+  
+  # Invalid - duplicate (case-insensitive)
+  Deficiency.create!(name: "leaking valve")
+  # => ActiveRecord::RecordInvalid: Name has already been taken
+  
+  # Invalid - blank
+  Deficiency.create!(name: "")
+  # => ActiveRecord::RecordInvalid: Name can't be blank
+  ```
+</ParamField>
+
+## Database Indexes
+
+```ruby
+index ["name"], unique: true
+```
+
+The unique index on the `name` column ensures:
+- Fast lookups by deficiency name
+- Database-level enforcement of uniqueness
+- Efficient queries when searching for specific deficiencies
+
+## Usage Examples
+
+### Creating Deficiencies
+
+```ruby
+# Create a new deficiency
+deficiency = Deficiency.create!(
+  name: "Leaking Valve"
+)
+
+# Create multiple deficiencies
+deficiency_names = [
+  "Missing Sprinkler Head",
+  "Corroded Pipe",
+  "Obstructed Access",
+  "Damaged Valve Wheel",
+  "Missing Signage"
+]
+
+deficiency_names.each do |name|
+  Deficiency.create!(name: name)
+end
+```
+
+### Querying Deficiencies
+
+```ruby
+# Find by name (case-insensitive)
+deficiency = Deficiency.find_by("LOWER(name) = ?", "leaking valve".downcase)
+
+# Get all deficiencies
+all_deficiencies = Deficiency.all
+
+# Search for deficiencies containing a keyword
+valve_deficiencies = Deficiency.where("name ILIKE ?", "%valve%")
+
+# Get deficiencies alphabetically
+sorted = Deficiency.order(:name)
+```
+
+### Using with Inspections
+
+```ruby
+# In an inspection form fill, deficiencies are stored as data
+form_fill = FormFill.find(1)
+
+# Get deficiencies from the form fill
+deficiencies = form_fill.get_deficiencies_for_processing
+
+deficiencies.each do |def_data|
+  # Check if this deficiency type exists in the catalog
+  deficiency = Deficiency.find_or_create_by!(
+    name: def_data["value"]
+  )
+  
+  # Process the deficiency
+  puts "Found: #{deficiency.name}"
+  puts "Item: #{def_data['Item']}"
+  puts "Comment: #{def_data['comment_value']}"
+end
+```
+
+### Managing the Deficiency Catalog
+
+```ruby
+# Add a new deficiency to the catalog
+def add_deficiency(name)
+  Deficiency.find_or_create_by!(name: name)
+rescue ActiveRecord::RecordInvalid => e
+  puts "Error: #{e.message}"
+end
+
+# Update a deficiency name
+deficiency = Deficiency.find_by(name: "Old Name")
+deficiency.update!(name: "New Name")
+
+# Remove a deficiency from the catalog
+deficiency = Deficiency.find_by(name: "Obsolete Deficiency")
+deficiency.destroy!
+```
+
+### Seeding Common Deficiencies
+
+```ruby
+# db/seeds.rb or migration
+common_deficiencies = [
+  # Valve Issues
+  "Leaking valve",
+  "Stuck valve",
+  "Missing valve handle",
+  "Damaged valve wheel",
+  "Valve not accessible",
+  
+  # Sprinkler Issues
+  "Missing sprinkler head",
+  "Damaged sprinkler head",
+  "Painted sprinkler head",
+  "Wrong temperature rating",
+  "Corroded sprinkler head",
+  
+  # Pipe Issues
+  "Leaking pipe",
+  "Corroded pipe",
+  "Damaged pipe hanger",
+  "Missing pipe support",
+  "Exposed pipe threads",
+  
+  # Access and Safety
+  "Obstructed access",
+  "Missing signage",
+  "Inadequate clearance",
+  "Locked access",
+  
+  # System Issues
+  "Low water pressure",
+  "System needs testing",
+  "Gauge needs replacement",
+  "Missing inspection tag"
+]
+
+common_deficiencies.each do |name|
+  Deficiency.find_or_create_by!(name: name)
+end
+
+puts "Created #{Deficiency.count} deficiencies"
+```
+
+### Reporting and Analytics
+
+```ruby
+# This example assumes a relationship between Deficiency and inspection data
+# (which may be implemented in your application logic)
+
+# Get deficiency statistics across all inspections
+def deficiency_report
+  deficiencies = {}
+  
+  # Collect all deficiencies from form fills
+  FormFill.find_each do |form_fill|
+    form_fill.get_deficiencies_for_processing.each do |def_data|
+      name = def_data["value"]
+      next if name.blank?
+      
+      deficiencies[name] ||= 0
+      deficiencies[name] += 1
+    end
+  end
+  
+  # Sort by frequency
+  deficiencies.sort_by { |name, count| -count }.to_h
+end
+
+# Example output:
+report = deficiency_report
+# => {
+#   "Leaking valve" => 45,
+#   "Missing sprinkler head" => 23,
+#   "Corroded pipe" => 18,
+#   ...
+# }
+```
+
+## Best Practices
+
+### Standardization
+
+```ruby
+# Always use consistent naming
+class Deficiency < ApplicationRecord
+  before_validation :normalize_name
+  
+  private
+  
+  def normalize_name
+    self.name = name.strip.titleize if name.present?
+  end
+end
+
+# Usage:
+Deficiency.create!(name: "leaking VALVE")
+# Stored as: "Leaking Valve"
+```
+
+### Finding or Creating
+
+```ruby
+# Use find_or_create_by to avoid duplicates
+def record_deficiency(name)
+  Deficiency.find_or_create_by!(name: name.strip.titleize)
+end
+
+# Usage in inspection processing
+deficiency_name = "leaking valve"
+deficiency = record_deficiency(deficiency_name)
+```
+
+### Validation Before Save
+
+```ruby
+# Check if deficiency exists before creating
+def add_if_new(name)
+  return if Deficiency.exists?(name: name)
+  
+  Deficiency.create!(name: name)
+end
+```
+
+## Integration with Inspections
+
+While the `Deficiency` model doesn't have direct associations with inspections in the current schema, it serves as a reference catalog. Actual deficiency instances are stored in the `FormFill` data:
+
+```ruby
+# In FormFill
+form_fill = FormFill.find(1)
+
+# Get deficiencies
+deficiencies = form_fill.get_deficiencies_for_processing
+# => [
+#   {
+#     "name" => "valve_deficiency",
+#     "value" => "Leaking Valve",  # References Deficiency.name
+#     "comment_value" => "Requires immediate repair",
+#     "Item" => "Main Control Valve",
+#     "Riser" => "A-1",
+#     "C" => "Critical",
+#     "D" => "2024-01-20"
+#   }
+# ]
+
+# Validate against catalog
+deficiencies.each do |def_data|
+  deficiency_type = Deficiency.find_by(name: def_data["value"])
+  
+  if deficiency_type
+    puts "Known deficiency: #{deficiency_type.name}"
+  else
+    puts "New deficiency type: #{def_data['value']}"
+    # Optionally add to catalog
+    Deficiency.create!(name: def_data["value"])
+  end
+end
+```
+
+## Related Models
+
+- [FormFill](/api/form-fill) - Stores actual deficiency instances in the data column
+- [Inspection](/api/inspection) - Inspections that may contain deficiencies

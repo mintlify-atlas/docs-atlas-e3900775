@@ -1,0 +1,226 @@
+---
+title: Managing Inspections
+description: Create, schedule, and track fire safety inspections from start to finish
+---
+
+## Overview
+
+Inspections are the core workflow of the PDF Form Parser system. Each inspection links a property, a form template, and a technician to create a complete inspection record with automatic form generation.
+
+## Create a New Inspection
+
+<Steps>
+  <Step title="Navigate to New Inspection">
+    You can create inspections from multiple places:
+    - Click **Inspections** > **New Inspection** in the main navigation
+    - From a property detail page, click **New Inspection**
+    - From the calendar view, click on a date
+  </Step>
+
+  <Step title="Select Customer and Property">
+    Choose the customer from the dropdown, then select the specific property to be inspected.
+    
+    <Info>
+    When you select a customer, the property dropdown will automatically populate with that customer's properties (see `inspections_controller.rb:289-296`).
+    </Info>
+  </Step>
+
+  <Step title="Choose System and Interval">
+    Select:
+    - **System Category**: The type of fire safety system (Sprinkler, Standpipe, Fire Alarm, etc.)
+    - **Interval Category**: The inspection frequency (Monthly, Quarterly, Annual, etc.)
+    
+    These selections determine which form template will be used.
+  </Step>
+
+  <Step title="Set Inspection Details">
+    - **Date**: When the inspection is scheduled or was performed
+    - **Technician**: Assign the inspection to a technician
+    - **Job Number**: Optional job reference number
+    - **Notes**: Any special instructions or context
+  </Step>
+
+  <Step title="Create Inspection">
+    Click **Create Inspection**. The system will:
+    1. Create the inspection record
+    2. Automatically generate the main form fill based on the template
+    3. Create additional forms (Deficiencies, Additional Risers, Corrected Deficiencies)
+    4. Auto-populate header information from property and customer data
+    
+    <Note>
+    Header auto-fill happens via `HeaderAutoFillerService` (see `inspections_controller.rb:152`).
+    </Note>
+  </Step>
+</Steps>
+
+## Understanding Inspection Status
+
+Each inspection has a status that tracks its lifecycle:
+
+| Status | Description | Actions Available |
+|--------|-------------|-------------------|
+| **Pending** | Inspection scheduled but not started | Edit, Start, Delete |
+| **In Progress** | Inspection is being performed | Continue filling form, Complete |
+| **Completed** | Inspection finished, PDF generated | View report, Send email, Re-open |
+| **Canceled** | Inspection was canceled | View only, Delete |
+
+### Update Inspection Status
+
+To change an inspection's status:
+
+1. Go to the inspection detail page
+2. Click the status badge or **Update Status** button
+3. Select the new status
+
+<Info>
+When an inspection is marked as "Completed", the system automatically triggers deficiency transfer to the property record (see `inspection.rb:17` and `inspections_controller.rb:181`).
+</Info>
+
+## View Inspection Details
+
+The inspection detail page (`inspections_controller.rb:33-48`) shows:
+
+- **Property Information**: Customer name, property address, contact details
+- **Inspection Metadata**: Date, technician, system/interval categories
+- **Form Status**: Main form and additional forms with completion indicators
+- **Statistics**: Pass/Fail/N/A counts from the main form (see `form_fill.rb:726-750`)
+- **Actions**: Fill forms, generate PDF, send report, update status
+
+## Working with Multiple Forms
+
+Each inspection includes several forms:
+
+### Main Inspection Form
+The primary form based on your selected system and interval template. This is where you record inspection findings.
+
+### Additional Risers Form
+For documenting extra risers or systems beyond the main inspection scope (see `inspections_controller.rb:123-135`).
+
+### Deficiencies Form
+Automatically compiled from "Fail" items in the main form (see `inspections_controller.rb:109-121`).
+
+### Corrected Deficiencies Form
+Used during follow-up inspections to verify corrections have been made (see `inspections_controller.rb:137-149`).
+
+<Tip>
+All forms are created automatically when you create the inspection. Just click on each form to fill it out.
+</Tip>
+
+## Filter and Search Inspections
+
+On the main inspections list (`inspections_controller.rb:12-31`), you can filter by:
+
+- **Status**: Pending, In Progress, Completed, Canceled
+- **Customer**: Show inspections for a specific customer
+- **Date Range**: Find inspections within a time period
+
+<Steps>
+  <Step title="Set Filters">
+    Use the filter controls at the top of the inspections list.
+  </Step>
+
+  <Step title="Apply Filters">
+    Click **Filter** or **Search** to update the results.
+  </Step>
+
+  <Step title="Clear Filters">
+    Click **Reset** or **Clear Filters** to show all inspections.
+  </Step>
+</Steps>
+
+## Calendar View
+
+The calendar view provides a visual overview of scheduled inspections.
+
+<Steps>
+  <Step title="Navigate to Calendar">
+    Click **Inspections** > **Calendar** in the main menu (see `inspections_controller.rb:199-248`).
+  </Step>
+
+  <Step title="Browse by Month">
+    Use the left/right arrows to navigate between months.
+  </Step>
+
+  <Step title="View Daily Inspections">
+    Click on any day to see inspections scheduled for that date. Each inspection shows:
+    - Customer and property name
+    - Assigned technician
+    - Status indicator
+  </Step>
+
+  <Step title="Create from Calendar">
+    Click on a date to create a new inspection pre-filled with that date.
+  </Step>
+</Steps>
+
+<Info>
+The calendar includes technician statistics showing inspection counts per technician for the month (see `inspections_controller.rb:216-219`).
+</Info>
+
+## Property Inspection History
+
+View all inspections for a specific property:
+
+<Steps>
+  <Step title="Go to Property Details">
+    Navigate to **Properties** and select a property.
+  </Step>
+
+  <Step title="View Inspections Tab">
+    The property page shows:
+    - Total inspections count
+    - Completed vs pending counts
+    - Upcoming inspections (within 3 days)
+    - Full inspection history with pagination (see `inspections_controller.rb:270-285`)
+  </Step>
+</Steps>
+
+## Edit or Delete Inspections
+
+### Edit an Inspection
+1. Open the inspection detail page
+2. Click **Edit Inspection**
+3. Update the fields as needed
+4. Click **Update Inspection**
+
+<Warning>
+Editing system or interval categories will change which template is used for the main form. Existing form data may be affected.
+</Warning>
+
+### Delete an Inspection
+1. Open the inspection detail page
+2. Click **Delete Inspection**
+3. Confirm the deletion
+
+<Warning>
+Deleting an inspection also deletes all associated form fills, photos, and signatures (see `inspection.rb:5`). This action cannot be undone.
+</Warning>
+
+## Dashboard Overview
+
+The inspections dashboard (`inspections_controller.rb:250-266`) provides:
+
+- **Total Inspections**: All-time count
+- **Pending Inspections**: Awaiting completion
+- **Completed Inspections**: Finished this month
+- **Upcoming Inspections**: Next 7 days
+- **Recent Activity**: Last 10 created inspections
+
+Access it via **Inspections** > **Dashboard**.
+
+## Best Practices
+
+<Tip>
+- **Schedule in advance**: Create inspections ahead of time and assign technicians early
+- **Use consistent naming**: Follow your company's job numbering conventions
+- **Track status**: Update status as you progress through inspections
+- **Add notes**: Include special access instructions or property-specific details
+- **Review before completing**: Check all forms are filled before marking as complete
+</Tip>
+
+## Next Steps
+
+After creating an inspection:
+1. [Fill out inspection forms](/guides/filling-forms) with photos and data
+2. Mark the inspection as complete
+3. [Generate the final report](/guides/generating-reports) and send to the customer

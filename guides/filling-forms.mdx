@@ -1,0 +1,244 @@
+---
+title: Filling Forms
+description: Complete inspection forms with field data, photos, signatures, and deficiency tracking
+---
+
+## Overview
+
+Form filling is where the actual inspection data is captured. The system supports various field types including text, checkboxes, photos, signatures, and structured deficiency tracking. All data is automatically saved to enable offline work and prevent data loss.
+
+## Access an Inspection Form
+
+<Steps>
+  <Step title="Open the Inspection">
+    Navigate to **Inspections** and select the inspection you want to work on.
+  </Step>
+
+  <Step title="Select a Form">
+    On the inspection detail page, you'll see all available forms:
+    - Main inspection form (based on system/interval template)
+    - Additional Risers
+    - Deficiencies
+    - Corrected Deficiencies
+    
+    Click **Fill Form** or **Edit** to open the form.
+  </Step>
+</Steps>
+
+## Fill Form Fields
+
+The form structure is defined by the template and automatically populated from inspection and property data (see `form_fills_controller.rb:54-102`).
+
+### Text Fields
+Enter text data for equipment IDs, locations, notes, or other free-form information.
+
+### Date Fields
+Use the date picker to select dates. Inspection date is auto-filled from the inspection record (see `form_fills_controller.rb:55`).
+
+### Pass/Fail/N/A Checkboxes
+For compliance items, select:
+- **Pass**: Item meets requirements
+- **Fail**: Item has deficiencies (automatically captured for deficiency report)
+- **N/A**: Item not applicable to this inspection
+
+<Info>
+The system tracks Pass/Fail/N/A counts and displays summary statistics on the inspection page (see `form_fill.rb:726-750`).
+</Info>
+
+### System and Interval Categories
+These fields are auto-populated from the inspection settings and cannot be edited in the form.
+
+## Upload Photos
+
+Visual documentation is critical for fire safety inspections.
+
+<Steps>
+  <Step title="Locate Photo Field">
+    Photo fields are marked with a camera icon or "Upload Photo" button.
+  </Step>
+
+  <Step title="Take or Select Photo">
+    - **Mobile**: Tap the field to use your device camera or select from gallery
+    - **Desktop**: Click to browse and select image files
+    
+    <Tip>
+    Supported formats: JPEG, PNG. Photos are automatically compressed for optimal storage.
+    </Tip>
+  </Step>
+
+  <Step title="Upload Multiple Photos">
+    You can attach multiple photos to a single field (see `form_fill.rb:5` and `form_fill.rb:31-77`). Each photo is stored with a unique identifier.
+  </Step>
+
+  <Step title="View Uploaded Photos">
+    Uploaded photos appear as thumbnails below the field. Click to view full size.
+  </Step>
+
+  <Step title="Remove Photos">
+    Click the **X** or **Remove** button on a photo to delete it (see `form_fills_controller.rb:214-259`).
+  </Step>
+</Steps>
+
+<Note>
+Photos are stored using ActiveStorage with unique attachment IDs (see `form_fill.rb:16-29` and `form_fill.rb:351-381`). The system prevents duplicate uploads of the same photo.
+</Note>
+
+## Capture Signatures
+
+Signatures are required for both technician and client sign-off.
+
+<Steps>
+  <Step title="Locate Signature Field">
+    Signature fields are labeled as "Technician Signature" or "Client Signature".
+  </Step>
+
+  <Step title="Sign the Form">
+    - **Touch devices**: Sign with your finger or stylus directly on the signature pad
+    - **Desktop**: Use your mouse to draw the signature
+  </Step>
+
+  <Step title="Save Signature">
+    Click **Save** or **Confirm** to attach the signature to the form.
+    
+    <Info>
+    Signatures are stored as PNG images for maximum quality (see `form_fill.rb:115-121` and `form_fill.rb:103-152`).
+    </Info>
+  </Step>
+
+  <Step title="Clear and Redo">
+    If you're not satisfied with the signature:
+    1. Click **Clear** to erase and try again
+    2. Or click **Remove Signature** to delete it entirely (see `form_fills_controller.rb:7-38`)
+  </Step>
+</Steps>
+
+<Warning>
+The system differentiates between technician and client signatures using field types (`Signature_Field` for technician, `Signature_Annex` for client). Make sure you're signing in the correct field (see `form_fill.rb:82-100` and `form_fill.rb:226-257`).
+</Warning>
+
+## Record Deficiencies
+
+Deficiencies are structured records of inspection failures requiring follow-up.
+
+<Steps>
+  <Step title="Identify Deficiency Field">
+    Deficiency fields include multiple sub-fields for detailed tracking.
+  </Step>
+
+  <Step title="Fill Deficiency Details">
+    For each deficiency, record:
+    - **Select**: Pass/Fail/N/A (typically Fail for deficiencies)
+    - **Item**: Specific equipment or component with the deficiency
+    - **Riser**: Riser number or zone identifier
+    - **Comment**: Detailed description of the deficiency
+    - **C (Critical)**: Check if this is a critical safety issue
+    - **D (Documented)**: Check if this deficiency was previously documented
+    
+    <Info>
+    Deficiency data structure is defined in `form_fills_controller.rb:69-88` and stored in `form_fill.rb:953-1011`.
+    </Info>
+  </Step>
+
+  <Step title="Add Multiple Deficiencies">
+    You can record multiple deficiencies for a single field using the collection feature (see `form_fill.rb:966-986`).
+    
+    Click **Add Another** to create additional deficiency entries.
+  </Step>
+
+  <Step title="Review Deficiencies">
+    All deficiencies are automatically compiled into the Deficiencies form for the inspection (see `form_fill.rb:953-999`).
+  </Step>
+</Steps>
+
+<Note>
+When an inspection is marked as "Completed", deficiencies are automatically transferred to the property record for tracking (see `inspection.rb:17` and `inspection.rb:29-31`).
+</Note>
+
+## Auto-Save and Draft Mode
+
+The form automatically saves your progress as you work.
+
+### How Auto-Save Works
+- Form data is stored in the `data` column as you type (see `form_fill.rb:786-802`)
+- Photos and signatures are saved immediately upon upload
+- No "Save Draft" button is needed—changes are saved continuously
+
+<Tip>
+You can safely close the form and return later. All entered data will be preserved.
+</Tip>
+
+### Bulk Updates
+When you click **Save Draft** or navigate away, the system performs a bulk update of all changed fields (see `form_fills_controller.rb:151-211` and `form_fill.rb:805-822`).
+
+<Info>
+The system uses separate handling for structure updates vs. data updates to optimize performance (see `form_fills_controller.rb:158-169`).
+</Info>
+
+## Data Column Storage
+
+Form data is stored separately from form structure for efficiency:
+
+- **form_structure**: Defines field names, types, sections, labels (from template)
+- **data**: Stores user-entered values for each field (see `form_fill.rb:775-802`)
+
+This separation allows:
+- Template updates without affecting existing data
+- Efficient queries and data retrieval
+- Better performance with large forms
+
+## View Updated Form Structure
+
+If the template is updated while you're working on a form, the system will sync the structure automatically (see `form_template.rb:11` and `form_template.rb:25-29`).
+
+To manually refresh:
+1. Click **Reload** or **Refresh Structure**
+2. The form will update with the latest field definitions
+3. Your existing data is preserved and merged (see `form_fills_controller.rb:262-336`)
+
+## Working Offline
+
+The system supports offline data entry for field technicians:
+
+- Forms can be accessed and filled without internet connection
+- Data is stored locally and synced when connection is restored
+- Photos are queued for upload when online
+
+<Info>
+Offline functionality is handled via PWA (Progressive Web App) features and API sync endpoints (see `routes.rb:86-99`).
+</Info>
+
+## Best Practices
+
+<Tip>
+- **Take photos as you go**: Capture visual evidence immediately while inspecting
+- **Be specific in comments**: Detailed notes help with follow-up and documentation
+- **Mark critical deficiencies**: Use the C (Critical) checkbox for safety issues
+- **Use consistent terminology**: Follow your company's standards for item and riser naming
+- **Review before submitting**: Check all required fields are complete
+- **Save frequently**: Although auto-save is enabled, manually saving periodically is good practice
+</Tip>
+
+## Troubleshooting
+
+### Photo Upload Fails
+- Check file size (very large photos may time out)
+- Ensure stable internet connection
+- Try a different image format (JPEG or PNG)
+
+### Signature Not Saving
+- Make sure you clicked **Save** after drawing the signature
+- Check that you're using the correct signature field (technician vs. client)
+- Try clearing browser cache if the issue persists
+
+### Form Data Not Appearing
+- Refresh the page to sync latest structure (see `form_fills_controller.rb:262-336`)
+- Check that the template hasn't been deleted or modified
+- Contact administrator if data is missing after refresh
+
+## Next Steps
+
+Once you've completed filling the form:
+1. Review all fields for completeness
+2. Ensure all required photos and signatures are captured
+3. Click **Submit Form** to finalize
+4. [Generate the PDF report](/guides/generating-reports) for the inspection

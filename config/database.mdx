@@ -1,0 +1,390 @@
+---
+title: Database Configuration
+description: Set up PostgreSQL databases, run migrations, and configure database connections for development, test, and production environments
+---
+
+## Database Overview
+
+The PDF Form Parser uses **PostgreSQL 9.3+** as its database system with multiple databases for different purposes:
+
+- **Primary database** - Main application data
+- **Cache database** - Solid Cache for Rails caching
+- **Queue database** - Solid Queue for background jobs
+- **Cable database** - Solid Cable for Action Cable
+
+## PostgreSQL Installation
+
+### Ubuntu/Debian
+
+```bash
+sudo apt-get update
+sudo apt-get install postgresql postgresql-contrib libpq-dev
+```
+
+### macOS
+
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+```
+
+## Database Configuration
+
+The database configuration is located in `config/database.yml`:
+
+### Development Environment
+
+```yaml
+development:
+  adapter: postgresql
+  encoding: unicode
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  database: form_processor_development
+```
+
+By default, development uses:
+- **Database name**: `form_processor_development`
+- **Connection**: Unix domain socket (localhost)
+- **Pool size**: 5 connections (configurable via `RAILS_MAX_THREADS`)
+
+### Test Environment
+
+```yaml
+test:
+  adapter: postgresql
+  encoding: unicode
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  database: form_processor_test
+```
+
+<Warning>
+The test database is automatically cleared when running tests. Never point your test configuration to a production or development database.
+</Warning>
+
+### Production Environment
+
+Production uses multiple databases with the `DATABASE_URL` environment variable:
+
+```yaml
+production:
+  primary:
+    database: form_processor_production
+    username: form_processor
+    password: <%= ENV["POSTGRES_PASSWORD"] %>
+    url: <%= ENV["DATABASE_URL"] %>
+  cache:
+    database: form_processor_production_cache
+    migrations_paths: db/cache_migrate
+  queue:
+    database: form_processor_production_queue
+    migrations_paths: db/queue_migrate
+  cable:
+    database: form_processor_production_cable
+    migrations_paths: db/cable_migrate
+```
+
+## Database Setup
+
+### Creating Databases
+
+For **development and test** environments:
+
+```bash
+bin/rails db:create
+```
+
+This creates:
+- `form_processor_development`
+- `form_processor_test`
+
+To create databases for a specific environment:
+
+```bash
+RAILS_ENV=production bin/rails db:create
+```
+
+### Running Migrations
+
+Apply all pending migrations:
+
+```bash
+bin/rails db:migrate
+```
+
+For production:
+
+```bash
+RAILS_ENV=production bin/rails db:migrate
+```
+
+<Note>
+Rails 8 uses separate migration paths for Solid Cache, Queue, and Cable. These are automatically managed when you run `db:migrate`.
+</Note>
+
+### Database Schema
+
+The application includes these primary tables:
+
+- **users** - User accounts (Devise authentication)
+- **roles** - User role assignments
+- **customers** - Customer information
+- **properties** - Property records
+- **inspections** - Inspection data
+- **form_templates** - PDF form templates
+- **form_fills** - Completed form data with JSONB storage
+- **deficiencies** - Inspection deficiencies
+- **active_storage_blobs** - File storage metadata
+- **active_storage_attachments** - File attachments
+- **active_storage_variant_records** - Image variants
+
+### Checking Migration Status
+
+```bash
+bin/rails db:migrate:status
+```
+
+## PostgreSQL Extensions
+
+The application requires the `plpgsql` extension, which is enabled by default:
+
+```ruby
+enable_extension "pg_catalog.plpgsql"
+```
+
+## Environment-Specific Configuration
+
+### Local Development with Custom Settings
+
+If you need custom database settings in development, uncomment and modify these in `config/database.yml`:
+
+```yaml
+development:
+  adapter: postgresql
+  encoding: unicode
+  pool: 5
+  database: form_processor_development
+  username: form_processor  # Your PostgreSQL username
+  password: your_password   # Your PostgreSQL password
+  host: localhost
+  port: 5432
+```
+
+### Production with DATABASE_URL
+
+The recommended approach for production is using the `DATABASE_URL` environment variable:
+
+```bash
+DATABASE_URL=postgresql://username:password@hostname:5432/form_processor_production
+```
+
+Rails automatically parses this URL and configures the connection. Individual settings in `database.yml` are merged on top of `DATABASE_URL` values.
+
+### Docker Build Environment
+
+The application includes a special `build` environment for Docker image creation:
+
+```yaml
+build:
+  adapter: postgresql
+  encoding: unicode
+  pool: 5
+  database: form_processor_build
+  username: postgres
+  password: ""
+  host: localhost
+  port: 5432
+```
+
+This is used during `bin/rails assets:precompile` in the Dockerfile.
+
+## Connection Pooling
+
+The application uses connection pooling to manage database connections efficiently:
+
+```yaml
+pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+```
+
+- **Default pool size**: 5 connections
+- **Configurable via**: `RAILS_MAX_THREADS` environment variable
+- **Production recommendation**: Set to match your Puma worker threads
+
+<Note>
+If you're using Puma with 5 threads and 2 workers, you need 10 database connections (5 threads × 2 workers).
+</Note>
+
+## Common Database Tasks
+
+### Reset Database
+
+Drop, recreate, and migrate the database:
+
+```bash
+bin/rails db:reset
+```
+
+<Warning>
+This destroys all data. Only use in development.
+</Warning>
+
+### Seed Database
+
+Load seed data:
+
+```bash
+bin/rails db:seed
+```
+
+### Drop Database
+
+```bash
+bin/rails db:drop
+```
+
+### Rollback Migration
+
+Rollback the last migration:
+
+```bash
+bin/rails db:rollback
+```
+
+Rollback multiple steps:
+
+```bash
+bin/rails db:rollback STEP=3
+```
+
+### View Schema
+
+The current database schema is in `db/schema.rb`. This file is auto-generated and should be committed to version control.
+
+```bash
+cat db/schema.rb
+```
+
+## JSONB Data Storage
+
+The `form_fills` table uses PostgreSQL's JSONB type for flexible data storage:
+
+```ruby
+t.jsonb "data", default: {}, null: false
+```
+
+This includes a GIN index for efficient querying:
+
+```ruby
+index ["data"], name: "index_form_fills_on_data", using: :gin
+```
+
+## Multiple Database Configuration (Rails 8)
+
+Rails 8's Solid libraries use multiple databases:
+
+```ruby
+# In config/environments/production.rb
+config.cache_store = :solid_cache_store
+config.active_job.queue_adapter = :solid_queue
+config.solid_queue.connects_to = { database: { writing: :queue } }
+```
+
+Migrations are automatically organized:
+- **db/migrate/** - Primary database migrations
+- **db/cache_migrate/** - Solid Cache migrations
+- **db/queue_migrate/** - Solid Queue migrations
+- **db/cable_migrate/** - Solid Cable migrations
+
+## Backup and Restore
+
+### Backup Database
+
+```bash
+pg_dump form_processor_production > backup.sql
+```
+
+With compression:
+
+```bash
+pg_dump form_processor_production | gzip > backup.sql.gz
+```
+
+### Restore Database
+
+```bash
+psql form_processor_production < backup.sql
+```
+
+From compressed backup:
+
+```bash
+gunzip -c backup.sql.gz | psql form_processor_production
+```
+
+## Troubleshooting
+
+### Connection Refused
+
+If you see "connection refused" errors:
+
+1. Check PostgreSQL is running:
+   ```bash
+   sudo systemctl status postgresql
+   ```
+
+2. Start PostgreSQL:
+   ```bash
+   sudo systemctl start postgresql
+   ```
+
+### Permission Denied
+
+Create the PostgreSQL user with database creation privileges:
+
+```bash
+sudo -u postgres createuser -s your_username
+```
+
+### Database Does Not Exist
+
+Simply run:
+
+```bash
+bin/rails db:create
+```
+
+### Migration Pending Error
+
+Run pending migrations:
+
+```bash
+bin/rails db:migrate
+```
+
+## Production Considerations
+
+### Database Sizing
+
+- Monitor connection pool usage
+- Adjust `RAILS_MAX_THREADS` based on load
+- Use connection pooling at the database level (pgBouncer)
+
+### Performance
+
+- Enable query logging in development: `config.active_record.verbose_query_logs = true`
+- Use database indexes appropriately
+- Monitor slow queries
+- Regular VACUUM and ANALYZE operations
+
+### Security
+
+- Use SSL connections in production
+- Restrict database access to application servers only
+- Use strong passwords
+- Regular security updates
+- Never expose `DATABASE_URL` in logs or error messages
+
+## Next Steps
+
+- [Configure Active Storage](/config/storage) for file uploads
+- [Set up authentication](/config/authentication) with Devise
+- Learn about [creating templates](/guides/creating-templates) and PDF processing

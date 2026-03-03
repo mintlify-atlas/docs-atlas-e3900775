@@ -1,0 +1,514 @@
+---
+title: Authentication Configuration
+description: Configure Devise authentication, manage users, and implement role-based access control
+---
+
+## Overview
+
+The PDF Form Parser uses **Devise 4.9** for user authentication with a role-based authorization system powered by **Pundit**.
+
+### Features
+
+- Email and password authentication
+- Password recovery
+- Remember me functionality
+- User activation/deactivation
+- Role-based permissions (Admin, Developer, Technician)
+- Custom registration routes
+
+## Devise Configuration
+
+Devise is configured in `config/initializers/devise.rb` with these key settings:
+
+```ruby
+Devise.setup do |config|
+  config.mailer_sender = 'please-change-me-at-config-initializers-devise@example.com'
+  
+  # ORM configuration
+  require 'devise/orm/active_record'
+end
+```
+
+### Enabled Modules
+
+The User model uses these Devise modules:
+
+```ruby
+# app/models/user.rb
+devise :database_authenticatable, 
+       :recoverable, 
+       :rememberable, 
+       :validatable
+```
+
+- **database_authenticatable** - Users sign in with email and password
+- **recoverable** - Password reset functionality
+- **rememberable** - "Remember me" checkbox for persistent sessions
+- **validatable** - Email and password validation
+
+<Note>
+Disabled modules: `:confirmable`, `:lockable`, `:timeoutable`, `:trackable`, and `:omniauthable` can be enabled if needed.
+</Note>
+
+## User Model
+
+The User model includes:
+
+```ruby
+class User < ApplicationRecord
+  has_one_attached :avatar
+  belongs_to :role, optional: true
+  has_many :inspections
+  
+  devise :database_authenticatable, :recoverable, :rememberable, :validatable
+
+  scope :active, -> { where(is_active: true) }
+  scope :inactive, -> { where(is_active: false) }
+
+  def active_for_authentication?
+    super && is_active
+  end
+
+  def inactive_message
+    is_active ? super : :inactive
+  end
+end
+```
+
+### User Attributes
+
+- **email** - Unique user email (required)
+- **encrypted_password** - Bcrypt encrypted password
+- **reset_password_token** - Token for password reset
+- **reset_password_sent_at** - Timestamp of password reset request
+- **remember_created_at** - Timestamp of "remember me" token creation
+- **is_active** - Boolean flag for user activation status
+- **role_id** - Foreign key to roles table
+- **name** - User's display name
+
+## Database Migration
+
+The Devise migration creates the users table:
+
+```ruby
+class DeviseCreateUsers < ActiveRecord::Migration[8.0]
+  def change
+    create_table :users do |t|
+      ## Database authenticatable
+      t.string :email,              null: false, default: ""
+      t.string :encrypted_password, null: false, default: ""
+
+      ## Recoverable
+      t.string   :reset_password_token
+      t.datetime :reset_password_sent_at
+
+      ## Rememberable
+      t.datetime :remember_created_at
+
+      t.timestamps null: false
+    end
+
+    add_index :users, :email,                unique: true
+    add_index :users, :reset_password_token, unique: true
+  end
+end
+```
+
+Run the migration:
+
+```bash
+bin/rails db:migrate
+```
+
+## Routes Configuration
+
+Devise routes are customized in `config/routes.rb`:
+
+```ruby
+Rails.application.routes.draw do
+  # Disable standard registration routes
+  devise_for :users, skip: [:registrations]
+
+  # Custom registration routes (edit/update/destroy only)
+  devise_scope :user do
+    get "users/edit", to: "devise/registrations#edit", as: "edit_user_registration"
+    patch "users", to: "devise/registrations#update", as: "user_registration"
+    put "users", to: "devise/registrations#update"
+    delete "users", to: "devise/registrations#destroy", as: "destroy_user_registration"
+  end
+end
+```
+
+<Warning>
+Public user registration is disabled. Only admins can create new users through the admin interface.
+</Warning>
+
+### Available Routes
+
+- `GET /users/sign_in` - Login page
+- `POST /users/sign_in` - Process login
+- `DELETE /users/sign_out` - Logout
+- `GET /users/password/new` - Password recovery
+- `POST /users/password` - Send password reset email
+- `GET /users/password/edit` - Password reset form
+- `PATCH /users/password` - Update password
+- `GET /users/edit` - Edit user profile
+- `PATCH /users` - Update user profile
+
+## Creating Users
+
+### First User (Console)
+
+Create the first admin user via Rails console:
+
+```bash
+bin/rails console
+```
+
+```ruby
+# Create admin role if needed
+admin_role = Role.create!(level: "Admin")
+
+# Create admin user
+User.create!(
+  email: "admin@example.com",
+  password: "secure_password",
+  password_confirmation: "secure_password",
+  name: "Admin User",
+  is_active: true,
+  role: admin_role
+)
+```
+
+### Via Admin Interface
+
+Admins can create users through the admin namespace:
+
+```ruby
+# config/routes.rb
+namespace :admin do
+  resources :users, only: %i[create destroy] do
+    member do
+      patch :update_role
+    end
+  end
+end
+```
+
+## User Activation/Deactivation
+
+The application includes custom activation methods:
+
+```ruby
+# Deactivate a user
+user.deactivate!
+# Updates is_active to false
+
+# Activate a user
+user.activate!
+# Updates is_active to true
+
+# Check if user can authenticate
+user.active_for_authentication?
+# Returns true only if Devise allows AND is_active is true
+```
+
+Deactivated users cannot sign in even with correct credentials.
+
+## Role-Based Authorization
+
+The application uses Pundit for authorization with three role levels:
+
+### Role Levels
+
+1. **Admin** - Full system access
+2. **Developer** - Development and configuration access
+3. **Technician** - Basic inspection and form access
+
+### Role Checking Methods
+
+```ruby
+user.admin?       # => true if role.level == "Admin"
+user.developer?   # => true if role.level == "Developer"
+user.technician?  # => true if role.level == "Technician"
+```
+
+### Using Pundit Policies
+
+```ruby
+# In controllers
+class InspectionsController < ApplicationController
+  before_action :authenticate_user!
+  
+  def show
+    @inspection = Inspection.find(params[:id])
+    authorize @inspection  # Calls InspectionPolicy
+  end
+end
+```
+
+```ruby
+# In views
+<% if policy(@inspection).edit? %>
+  <%= link_to "Edit", edit_inspection_path(@inspection) %>
+<% end %>
+```
+
+## Email Configuration
+
+Devise sends emails for password recovery. Configure SMTP in the environment files.
+
+### Development
+
+```ruby
+# config/environments/development.rb
+config.action_mailer.default_url_options = { host: "localhost", port: 3000 }
+
+config.action_mailer.smtp_settings = {
+  address: ENV.fetch("SMTP_SERVER", "smtp.mailgun.org"),
+  port: ENV.fetch("SMTP_PORT", 587).to_i,
+  domain: ENV.fetch("SMTP_DOMAIN", "mg.aesfireinspections.com"),
+  user_name: ENV["SMTP_USERNAME"],
+  password: ENV["SMTP_PASSWORD"],
+  authentication: ENV.fetch("SMTP_AUTH_METHOD", "plain").to_sym,
+  enable_starttls_auto: true
+}
+```
+
+### Production
+
+```ruby
+# config/environments/production.rb
+config.action_mailer.default_url_options = { host: ENV.fetch('APP_HOST', 'example.com') }
+
+config.action_mailer.smtp_settings = {
+  address: ENV['SMTP_SERVER'],
+  port: ENV.fetch('SMTP_PORT', 587).to_i,
+  domain: ENV['SMTP_DOMAIN'],
+  user_name: ENV['SMTP_USERNAME'],
+  password: ENV['SMTP_PASSWORD'],
+  authentication: ENV.fetch('SMTP_AUTH_METHOD', 'plain'),
+  enable_starttls_auto: true
+}
+```
+
+### Required Environment Variables
+
+```bash
+# .env (development)
+SMTP_SERVER=smtp.mailgun.org
+SMTP_PORT=587
+SMTP_DOMAIN=your-domain.com
+SMTP_USERNAME=your-smtp-username
+SMTP_PASSWORD=your-smtp-password
+SMTP_AUTH_METHOD=plain
+APP_HOST=localhost:3000
+```
+
+### Update Mailer Sender
+
+Change the default sender email in `config/initializers/devise.rb`:
+
+```ruby
+config.mailer_sender = 'noreply@your-domain.com'
+```
+
+## Security Considerations
+
+### Password Requirements
+
+Devise's default validatable module requires:
+- Minimum 6 characters
+- Can be customized in `config/initializers/devise.rb`:
+
+```ruby
+config.password_length = 8..128
+```
+
+### Session Timeout
+
+Enable timeoutable module for automatic logout:
+
+```ruby
+# app/models/user.rb
+devise :database_authenticatable, :recoverable, :rememberable, :validatable, :timeoutable
+```
+
+```ruby
+# config/initializers/devise.rb
+config.timeout_in = 30.minutes
+```
+
+### Account Locking
+
+Enable lockable module for brute-force protection:
+
+```ruby
+# Add migration first
+rails g migration add_lockable_to_users
+```
+
+```ruby
+# Migration
+def change
+  add_column :users, :failed_attempts, :integer, default: 0, null: false
+  add_column :users, :unlock_token, :string
+  add_column :users, :locked_at, :datetime
+  add_index :users, :unlock_token, unique: true
+end
+```
+
+```ruby
+# app/models/user.rb
+devise :database_authenticatable, :recoverable, :rememberable, :validatable, :lockable
+```
+
+### Two-Factor Authentication (Optional)
+
+For enhanced security, consider adding 2FA with `devise-two-factor` gem.
+
+## Testing Authentication
+
+### In Controller Tests
+
+```ruby
+class InspectionsControllerTest < ActionDispatch::IntegrationTest
+  include Devise::Test::IntegrationHelpers
+
+  setup do
+    @user = users(:one)
+    sign_in @user
+  end
+
+  test "should get index" do
+    get inspections_url
+    assert_response :success
+  end
+end
+```
+
+### In System Tests
+
+```ruby
+class InspectionsTest < ApplicationSystemTestCase
+  setup do
+    @user = users(:one)
+    sign_in @user
+  end
+
+  test "visiting the index" do
+    visit inspections_url
+    assert_selector "h1", text: "Inspections"
+  end
+end
+```
+
+## User Management
+
+### Scopes
+
+```ruby
+# Get all active users
+User.active
+
+# Get all inactive users
+User.inactive
+```
+
+### Display Name
+
+```ruby
+user.display_name
+# Returns user.name if present, otherwise user.email
+```
+
+### Associated Records
+
+```ruby
+# User's inspections
+user.inspections
+
+# User's avatar (Active Storage)
+user.avatar.attached?
+url_for(user.avatar) if user.avatar.attached?
+```
+
+## Common Tasks
+
+### Reset User Password (Console)
+
+```ruby
+user = User.find_by(email: "user@example.com")
+user.password = "new_secure_password"
+user.password_confirmation = "new_secure_password"
+user.save!
+```
+
+### Change User Role
+
+```ruby
+new_role = Role.find_by(level: "Admin")
+user.update(role: new_role)
+```
+
+### List All Users with Roles
+
+```ruby
+User.includes(:role).each do |user|
+  puts "#{user.email} - #{user.role&.level || 'No Role'}"
+end
+```
+
+## Troubleshooting
+
+### "Email has already been taken"
+
+Ensure email uniqueness:
+
+```ruby
+User.find_by(email: "duplicate@example.com")&.destroy
+```
+
+### Password Reset Email Not Sending
+
+1. Check SMTP configuration
+2. Verify environment variables are set
+3. Test email settings:
+
+```ruby
+ActionMailer::Base.smtp_settings
+```
+
+### Users Can't Sign In
+
+Check if user is active:
+
+```ruby
+user = User.find_by(email: "user@example.com")
+user.is_active  # Should be true
+user.activate! if !user.is_active
+```
+
+### Devise Routes Not Working
+
+Regenerate routes:
+
+```bash
+bin/rails routes | grep devise
+```
+
+## Customizing Devise Views
+
+Generate Devise views for customization:
+
+```bash
+bin/rails generate devise:views
+```
+
+This creates views in `app/views/devise/` that you can customize.
+
+## Next Steps
+
+- Learn about [creating templates](/guides/creating-templates) and PDF processing
+- Explore [sync endpoints](/api/sync-endpoints) for API access
+- Configure [Pundit policies](https://github.com/varvet/pundit) for fine-grained authorization

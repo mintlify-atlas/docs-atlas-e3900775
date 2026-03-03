@@ -1,0 +1,218 @@
+---
+title: FormTemplate
+description: API reference for the FormTemplate model
+---
+
+## Overview
+
+The `FormTemplate` model represents a PDF form template that can be used for inspections. It stores the original PDF file, its structure, and manages relationships with inspections and form fills.
+
+## Database Schema
+
+### Attributes
+
+<ParamField path="id" type="integer" required>
+  Primary key
+</ParamField>
+
+<ParamField path="name" type="string">
+  Name of the form template
+</ParamField>
+
+<ParamField path="original_filename" type="string">
+  Original filename of the uploaded PDF
+</ParamField>
+
+<ParamField path="file_path" type="string">
+  Legacy file path (deprecated - use `original_file` attachment instead)
+</ParamField>
+
+<ParamField path="file_type" type="string">
+  Type of the form file (e.g., "PDF")
+</ParamField>
+
+<ParamField path="form_structure" type="text">
+  JSON structure defining the form fields and their properties
+</ParamField>
+
+<ParamField path="system_category" type="string">
+  System category for the form template (e.g., "Fire Protection", "Sprinkler")
+</ParamField>
+
+<ParamField path="created_at" type="datetime">
+  Timestamp when the template was created
+</ParamField>
+
+<ParamField path="updated_at" type="datetime">
+  Timestamp when the template was last updated
+</ParamField>
+
+## Associations
+
+### Has Many
+
+<ParamField path="inspections" type="has_many">
+  Inspections using this template
+  
+  **Dependent:** `restrict_with_error` - Cannot delete template if inspections exist
+  
+  ```ruby
+  template = FormTemplate.find(1)
+  template.inspections # => [#<Inspection...>, ...]
+  ```
+</ParamField>
+
+<ParamField path="form_fills" type="has_many">
+  Form fills based on this template
+  
+  **Dependent:** `destroy` - Deletes all form fills when template is deleted
+  
+  ```ruby
+  template = FormTemplate.find(1)
+  template.form_fills # => [#<FormFill...>, ...]
+  ```
+</ParamField>
+
+### Has One Attached
+
+<ParamField path="original_file" type="active_storage">
+  The original PDF file uploaded for this template
+  
+  **Validation:** Must be present
+  
+  ```ruby
+  template = FormTemplate.find(1)
+  template.original_file.attached? # => true
+  ```
+</ParamField>
+
+### Has and Belongs to Many
+
+<ParamField path="interval_categories" type="habtm">
+  Interval categories associated with this template (e.g., monthly, quarterly, annual)
+  
+  ```ruby
+  template = FormTemplate.find(1)
+  template.interval_categories # => [#<IntervalCategory...>, ...]
+  ```
+</ParamField>
+
+## Validations
+
+```ruby
+validates :original_file, presence: true
+```
+
+**Note:** Additional validations for `name`, `file_type`, and `form_structure` are commented out in the source but may be enforced at the application level.
+
+## Callbacks
+
+### Before Update
+
+<ParamField path="update_associated_form_fills" type="callback">
+  Automatically updates the `form_structure` of all associated form fills when the template's structure changes.
+  
+  **Trigger:** When `form_structure` is modified
+  
+  **Implementation:**
+  ```ruby
+  before_update :update_associated_form_fills, if: :form_structure_changed?
+  ```
+  
+  This ensures all existing form fills stay synchronized with template updates.
+</ParamField>
+
+## Public Methods
+
+### file_path
+
+<ParamField path="file_path" type="method">
+  Returns the URL path for the attached original file.
+  
+  **Returns:** `String` or `nil`
+  
+  **Example:**
+  ```ruby
+  template = FormTemplate.find(1)
+  template.file_path
+  # => "/rails/active_storage/blobs/.../template.pdf"
+  ```
+  
+  **Implementation:**
+  ```ruby
+  def file_path
+    if original_file.attached?
+      Rails.application.routes.url_helpers.rails_blob_path(original_file, only_path: true)
+    end
+  end
+  ```
+</ParamField>
+
+## Usage Examples
+
+### Creating a New Template
+
+```ruby
+template = FormTemplate.new(
+  name: "Monthly Inspection Form",
+  file_type: "PDF",
+  system_category: "Fire Protection",
+  form_structure: {
+    fields: [
+      { name: "inspector_name", type: "Text" },
+      { name: "inspection_date", type: "Date" }
+    ]
+  }.to_json
+)
+
+template.original_file.attach(
+  io: File.open('path/to/form.pdf'),
+  filename: 'inspection_form.pdf',
+  content_type: 'application/pdf'
+)
+
+template.save!
+```
+
+### Updating Template Structure
+
+```ruby
+template = FormTemplate.find(1)
+
+# Update the form structure
+template.update!(
+  form_structure: new_structure.to_json
+)
+
+# All associated form_fills will automatically receive the new structure
+template.form_fills.each do |form_fill|
+  puts form_fill.form_structure # => Updated structure
+end
+```
+
+### Accessing Related Records
+
+```ruby
+template = FormTemplate.find(1)
+
+# Get all inspections using this template
+inspections = template.inspections
+
+# Get all form fills
+form_fills = template.form_fills
+
+# Get interval categories
+intervals = template.interval_categories
+
+# Access the original file
+if template.original_file.attached?
+  url = template.file_path
+  filename = template.original_file.filename
+  content_type = template.original_file.content_type
+end
+```
+
+## Related Models
+
+- [FormFill](/api/form-fill) - Individual form instances based on this template
+- [Inspection](/api/inspection) - Inspections using this template
