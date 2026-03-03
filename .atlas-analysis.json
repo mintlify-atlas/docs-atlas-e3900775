@@ -1,0 +1,104 @@
+{
+  "projectType": "saas",
+  "projectName": "PDF Form Parser",
+  "projectDescription": "A fire inspection management system that parses PDF forms, manages inspections, and generates signed reports with photos and deficiencies.",
+  "theme": "aspen",
+  "primaryColor": "#DC2626",
+  "lightColor": "#F87171",
+  "darkColor": "#991B1B",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/pdf-parsing",
+              "features/form-management",
+              "features/inspections",
+              "features/digital-signatures",
+              "features/photo-management"
+            ]
+          },
+          {
+            "group": "User Guide",
+            "pages": [
+              "guides/creating-templates",
+              "guides/managing-inspections",
+              "guides/filling-forms",
+              "guides/generating-reports"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "config/setup",
+              "config/database",
+              "config/storage",
+              "config/authentication"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Services",
+            "pages": [
+              "api/pdf-forms-parser",
+              "api/pdf-signature-service",
+              "api/pdf-merging-service"
+            ]
+          },
+          {
+            "group": "Models",
+            "pages": [
+              "api/form-template",
+              "api/form-fill",
+              "api/inspection",
+              "api/deficiency"
+            ]
+          },
+          {
+            "group": "API Endpoints",
+            "pages": [
+              "api/sync-endpoints",
+              "api/offline-support"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Parse PDF forms with AcroForm field detection",
+    "Digital signature support with PAdES compliance",
+    "Photo and deficiency tracking for inspections",
+    "PDF merging and report generation",
+    "Offline-first mobile support with sync API",
+    "Multi-tenant customer and property management"
+  ],
+  "publicApiSurface": [
+    "PdfFormsParserService#parse",
+    "PdfFormsParserService#fill_form",
+    "PdfSignatureService.list_signature_fields",
+    "PdfSignatureService.sign",
+    "PdfSignatureService.stamp_signature_image",
+    "PdfMergingService#merge",
+    "PdfMergingService.add_images_to_pdf",
+    "FormFill#attach_photo_for_field",
+    "FormFill#get_field_value",
+    "FormFill#set_field_value",
+    "POST /api/v1/sync",
+    "GET /api/v1/inspections/:id/offline_data"
+  ]
+}
